@@ -1,15 +1,25 @@
 body{
 margin:0;
-font-family:Arial;
-background:linear-gradient(135deg,#0f172a,#1e293b);
+font-family:Arial, Helvetica, sans-serif;
+background:#0f172a;
 color:white;
-overflow-x:hidden;
 }
 
 .container{
-max-width:1000px;
+max-width:950px;
 margin:auto;
-padding:40px 20px;
+padding:25px;
+}
+
+h1{
+text-align:center;
+margin-bottom:5px;
+}
+
+.subtitle{
+text-align:center;
+opacity:0.6;
+margin-bottom:25px;
 }
 
 .tabs{
@@ -21,32 +31,26 @@ margin-bottom:30px;
 .tabs button{
 padding:10px 25px;
 margin:5px;
-background:rgba(255,255,255,0.08);
-border:none;
+background:#1e293b;
 color:white;
-border-radius:12px;
+border:none;
+border-radius:8px;
 cursor:pointer;
-transition:0.3s;
-backdrop-filter:blur(8px);
+transition:0.3s ease;
+font-weight:500;
 }
 
 .tabs button.active{
 background:#2563eb;
-box-shadow:0 0 20px rgba(37,99,235,0.7);
+box-shadow:0 0 15px rgba(37,99,235,0.6);
 }
 
 .card{
-background:rgba(255,255,255,0.05);
+background:#1e293b;
 padding:30px;
-border-radius:20px;
+border-radius:18px;
 margin-bottom:30px;
-box-shadow:0 25px 50px rgba(0,0,0,0.4);
-transform-style:preserve-3d;
-transition:transform 0.4s ease;
-}
-
-.card:hover{
-transform:rotateX(3deg) rotateY(3deg);
+box-shadow:0 15px 40px rgba(0,0,0,0.45);
 }
 
 textarea,input{
@@ -55,6 +59,12 @@ padding:12px;
 margin:10px 0;
 border-radius:10px;
 border:none;
+font-size:14px;
+}
+
+textarea{
+min-height:110px;
+resize:vertical;
 }
 
 button{
@@ -62,18 +72,54 @@ background:#2563eb;
 color:white;
 border:none;
 padding:10px 18px;
-border-radius:10px;
+border-radius:8px;
 cursor:pointer;
+transition:0.2s ease;
+font-weight:500;
 }
 
-.hidden{display:none;}
+button:hover{
+background:#1d4ed8;
+transform:translateY(-1px);
+}
 
-.strength{font-weight:bold;margin-top:5px;}
-.strength.weak{color:#ef4444;}
-.strength.medium{color:#f59e0b;}
-.strength.strong{color:#22c55e;}
+.btn-row{
+display:flex;
+gap:10px;
+flex-wrap:wrap;
+margin-top:10px;
+}
 
-.wheel{position:relative;width:200px;margin:30px auto;}
+.hidden{
+display:none;
+}
+
+/* Strength Indicator */
+.strength{
+margin-top:5px;
+font-size:14px;
+font-weight:bold;
+}
+
+.strength.weak{
+color:#ef4444;
+}
+
+.strength.medium{
+color:#f59e0b;
+}
+
+.strength.strong{
+color:#22c55e;
+}
+
+/* Risk Wheel */
+.wheel{
+position:relative;
+width:200px;
+margin:30px auto;
+}
+
 #scoreText{
 position:absolute;
 top:80px;
@@ -84,6 +130,22 @@ font-size:36px;
 font-weight:bold;
 }
 
-#category{text-align:center;font-size:18px;margin-top:10px;}
-#breakdown{text-align:center;margin-top:10px;font-size:14px;}
-#loading{text-align:center;margin-top:10px;color:#f59e0b;}
+#resultText{
+margin-top:15px;
+text-align:center;
+font-weight:500;
+}
+
+#adviceText{
+margin-top:10px;
+text-align:center;
+font-size:14px;
+opacity:0.9;
+}
+
+.privacy-note{
+font-size:12px;
+opacity:0.6;
+text-align:center;
+margin-top:20px;
+}
