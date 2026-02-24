@@ -1,96 +1,137 @@
+// ================= TAB SWITCH =================
+
 function showTab(tab){
-document.getElementById("vault").classList.add("hidden");
-document.getElementById("risk").classList.add("hidden");
-document.getElementById("vaultTab").classList.remove("active");
-document.getElementById("riskTab").classList.remove("active");
+document.querySelectorAll(".tab-content").forEach(t=>t.classList.add("hidden"));
+document.querySelectorAll(".tabs button").forEach(b=>b.classList.remove("active"));
+
 document.getElementById(tab).classList.remove("hidden");
+if(document.getElementById(tab+"Tab"))
 document.getElementById(tab+"Tab").classList.add("active");
 }
 
-/* ================= PASSWORD STRENGTH ================= */
+// ================= PASSWORD ENTROPY =================
 
-function calculateStrength(p){
-let s=0;
-if(p.length>=8)s+=20;
-if(/[A-Z]/.test(p))s+=20;
-if(/[a-z]/.test(p))s+=10;
-if(/[0-9]/.test(p))s+=20;
-if(/[^A-Za-z0-9]/.test(p))s+=20;
-if(p.length>=12)s+=10;
-return s;
+function calculateEntropy(password){
+if(!password) return 0;
+
+let charset=0;
+if(/[a-z]/.test(password)) charset+=26;
+if(/[A-Z]/.test(password)) charset+=26;
+if(/[0-9]/.test(password)) charset+=10;
+if(/[^A-Za-z0-9]/.test(password)) charset+=32;
+
+let entropy=password.length * Math.log2(charset || 1);
+return Math.round(entropy);
 }
 
-function displayStrength(id,value){
-let el=document.getElementById(id);
-let score=calculateStrength(value);
+function showStrength(elementId,password){
+let entropy=calculateEntropy(password);
+let el=document.getElementById(elementId);
 
-if(!value){ el.innerText=""; return; }
+if(!password){ el.innerText=""; return; }
 
-if(score<40){
-el.innerText="Weak – Add uppercase, numbers, symbols";
+if(entropy<40){
+el.innerText="Weak ("+entropy+" bits)";
 el.className="strength weak";
 }
-else if(score<70){
-el.innerText="Medium – Increase length for better security";
+else if(entropy<70){
+el.innerText="Medium ("+entropy+" bits)";
 el.className="strength medium";
 }
 else{
-el.innerText="Strong – Good security level";
+el.innerText="Strong ("+entropy+" bits)";
 el.className="strength strong";
 }
 }
 
 function checkTextStrength(){
-displayStrength("textStrength",document.getElementById("textPassword").value);
+showStrength("textStrength",document.getElementById("textPassword").value);
 }
-
 function checkFileStrength(){
-displayStrength("fileStrength",document.getElementById("filePassword").value);
+showStrength("fileStrength",document.getElementById("filePassword").value);
 }
-
 function checkRiskStrength(){
-displayStrength("riskStrength",document.getElementById("passwordInput").value);
+showStrength("riskStrength",document.getElementById("passwordInput").value);
 }
 
-/* ================= TEXT ENCRYPTION ================= */
+// ================= ENCRYPTION CORE =================
+
+async function deriveKey(password,salt){
+const enc=new TextEncoder();
+const keyMaterial=await crypto.subtle.importKey("raw",enc.encode(password),{name:"PBKDF2"},false,["deriveKey"]);
+return await crypto.subtle.deriveKey({
+name:"PBKDF2",
+salt:salt,
+iterations:150000,
+hash:"SHA-256"
+},keyMaterial,{name:"AES-GCM",length:256},false,["encrypt","decrypt"]);
+}
+
+function combineBuffers(...buffers){
+let totalLength=buffers.reduce((acc,b)=>acc+b.byteLength,0);
+let combined=new Uint8Array(totalLength);
+let offset=0;
+buffers.forEach(b=>{
+combined.set(new Uint8Array(b),offset);
+offset+=b.byteLength;
+});
+return combined;
+}
+
+// ================= TEXT ENCRYPT =================
 
 async function encryptText(){
 let text=document.getElementById("textInput").value;
 let p1=document.getElementById("textPassword").value;
 let p2=document.getElementById("textConfirmPassword").value;
+
 if(!p1||p1!==p2){alert("Password mismatch");return;}
 
 let enc=new TextEncoder();
-let keyMaterial=await crypto.subtle.importKey("raw",enc.encode(p1),{name:"PBKDF2"},false,["deriveKey"]);
-let key=await crypto.subtle.deriveKey({
-name:"PBKDF2",salt:enc.encode("vault"),
-iterations:120000,hash:"SHA-256"
-},keyMaterial,{name:"AES-GCM",length:256},false,["encrypt"]);
-
+let salt=crypto.getRandomValues(new Uint8Array(16));
 let iv=crypto.getRandomValues(new Uint8Array(12));
+
+let key=await deriveKey(p1,salt);
 let encrypted=await crypto.subtle.encrypt({name:"AES-GCM",iv},key,enc.encode(text));
-document.getElementById("textOutput").value=btoa(String.fromCharCode(...iv,...new Uint8Array(encrypted)));
+
+let header=new TextEncoder().encode("SVP1");
+let finalData=combineBuffers(header,salt,iv,encrypted);
+
+document.getElementById("textOutput").value=btoa(String.fromCharCode(...finalData));
+document.getElementById("integrityMsg").innerText="Encrypted with integrity protection (AES-GCM).";
+
+document.getElementById("textPassword").value="";
+document.getElementById("textConfirmPassword").value="";
 }
 
 async function decryptText(){
 try{
-let data=atob(document.getElementById("textInput").value);
+let data=Uint8Array.from(atob(document.getElementById("textInput").value),c=>c.charCodeAt(0));
+
+let header=new TextDecoder().decode(data.slice(0,4));
+if(header!=="SVP1"){alert("Invalid format");return;}
+
+let salt=data.slice(4,20);
+let iv=data.slice(20,32);
+let ciphertext=data.slice(32);
+
 let password=document.getElementById("textPassword").value;
+let key=await deriveKey(password,salt);
 
-let bytes=Uint8Array.from(data,c=>c.charCodeAt(0));
-let iv=bytes.slice(0,12);
-let encrypted=bytes.slice(12);
-
-let enc=new TextEncoder();
-let keyMaterial=await crypto.subtle.importKey("raw",enc.encode(password),{name:"PBKDF2"},false,["deriveKey"]);
-let key=await crypto.subtle.deriveKey({
-name:"PBKDF2",salt:enc.encode("vault"),
-iterations:120000,hash:"SHA-256"
-},keyMaterial,{name:"AES-GCM",length:256},false,["decrypt"]);
-
-let decrypted=await crypto.subtle.decrypt({name:"AES-GCM",iv},key,encrypted);
+let decrypted=await crypto.subtle.decrypt({name:"AES-GCM",iv},key,ciphertext);
 document.getElementById("textOutput").value=new TextDecoder().decode(decrypted);
-}catch{alert("Wrong password or invalid data");}
+document.getElementById("integrityMsg").innerText="Integrity verified ✔";
+
+document.getElementById("textPassword").value="";
+}catch{
+alert("Wrong password or corrupted data");
+}
+}
+
+function clearText(){
+document.getElementById("textInput").value="";
+document.getElementById("textOutput").value="";
+document.getElementById("integrityMsg").innerText="";
 }
 
 function shareText(){
@@ -100,95 +141,66 @@ navigator.clipboard.writeText(data);
 alert("Copied to clipboard");
 }
 
-function clearText(){
-document.getElementById("textInput").value="";
-document.getElementById("textOutput").value="";
-}
-
-/* ================= FILE ENCRYPTION ================= */
-
-let lastEncryptedFileBlob=null;
+// ================= FILE ENCRYPT =================
 
 async function encryptFile(){
 let file=document.getElementById("fileInput").files[0];
 let password=document.getElementById("filePassword").value;
 let confirm=document.getElementById("fileConfirmPassword").value;
+
 if(!file||password!==confirm){alert("Check file or password");return;}
 
 let buffer=await file.arrayBuffer();
-let enc=new TextEncoder();
-
-let keyMaterial=await crypto.subtle.importKey("raw",enc.encode(password),{name:"PBKDF2"},false,["deriveKey"]);
-let key=await crypto.subtle.deriveKey({
-name:"PBKDF2",salt:enc.encode("vault"),
-iterations:120000,hash:"SHA-256"
-},keyMaterial,{name:"AES-GCM",length:256},false,["encrypt"]);
-
+let salt=crypto.getRandomValues(new Uint8Array(16));
 let iv=crypto.getRandomValues(new Uint8Array(12));
-let encrypted=await crypto.subtle.encrypt({name:"AES-GCM",iv},key,buffer);
+let key=await deriveKey(password,salt);
 
-lastEncryptedFileBlob=new Blob([iv,new Uint8Array(encrypted)]);
+let encrypted=await crypto.subtle.encrypt({name:"AES-GCM",iv},key,buffer);
+let header=new TextEncoder().encode("SVP1");
+
+let finalData=combineBuffers(header,salt,iv,encrypted);
+
+let blob=new Blob([finalData]);
 let link=document.createElement("a");
-link.href=URL.createObjectURL(lastEncryptedFileBlob);
+link.href=URL.createObjectURL(blob);
 link.download=file.name+".enc";
 link.click();
+
+document.getElementById("filePassword").value="";
+document.getElementById("fileConfirmPassword").value="";
 }
 
-function shareFile(){
-if(!lastEncryptedFileBlob){alert("No encrypted file yet");return;}
-navigator.clipboard.writeText("Encrypted file ready. Share downloaded file.");
-alert("File ready to share.");
+async function decryptFile(){
+let file=document.getElementById("fileInput").files[0];
+let password=document.getElementById("filePassword").value;
+if(!file){alert("Select encrypted file");return;}
+
+let buffer=new Uint8Array(await file.arrayBuffer());
+
+let header=new TextDecoder().decode(buffer.slice(0,4));
+if(header!=="SVP1"){alert("Invalid encrypted file");return;}
+
+let salt=buffer.slice(4,20);
+let iv=buffer.slice(20,32);
+let ciphertext=buffer.slice(32);
+
+let key=await deriveKey(password,salt);
+let decrypted=await crypto.subtle.decrypt({name:"AES-GCM",iv},key,ciphertext);
+
+let blob=new Blob([decrypted]);
+let link=document.createElement("a");
+link.href=URL.createObjectURL(blob);
+link.download="decrypted_file";
+link.click();
+
+document.getElementById("filePassword").value="";
 }
 
-function clearFile(){
-document.getElementById("fileInput").value="";
-}
-
-/* ================= RISK ANALYZER ================= */
-
-async function runScan(){
-
-let score=0;
-let findings=[];
-
-let email=document.getElementById("emailInput").value;
-let username=document.getElementById("usernameInput").value;
-let password=document.getElementById("passwordInput").value;
-let contacts=parseInt(document.getElementById("contactInput").value)||0;
-
-// PASSWORD
-let strength=calculateStrength(password);
-score+=(100-strength);
-if(strength<50)findings.push("Weak password");
-
-let breached=await checkBreach(password);
-if(breached){score+=30;findings.push("Password found in breach database");}
-
-// EMAIL
-if(email){
-if(email.length<8){score+=10;findings.push("Short email");}
-if(email.includes("123")){score+=10;findings.push("Predictable email pattern");}
-}
-
-// USERNAME
-if(username){
-if(username.length<5){score+=10;findings.push("Short username");}
-if(username.includes("123")){score+=10;}
-}
-
-// CONTACT SURFACE
-if(contacts>500){score+=10;findings.push("Large contact exposure surface");}
-if(contacts>1000){score+=10;}
-
-if(score>100)score=100;
-
-animateWheel(score,findings);
-
-document.getElementById("passwordInput").value="";
-}
+// ================= BREACH CHECK =================
 
 async function checkBreach(password){
-if(!password)return false;
+if(!password) return 0;
+
 let enc=new TextEncoder();
 let hashBuffer=await crypto.subtle.digest("SHA-1",enc.encode(password));
 let hashArray=Array.from(new Uint8Array(hashBuffer));
@@ -199,10 +211,68 @@ let suffix=hashHex.substring(5);
 
 let res=await fetch(`https://api.pwnedpasswords.com/range/${prefix}`);
 let txt=await res.text();
-return txt.includes(suffix);
+
+let lines=txt.split("\n");
+for(let line of lines){
+let parts=line.split(":");
+if(parts[0]===suffix){
+return parseInt(parts[1]);
+}
+}
+return 0;
 }
 
-function animateWheel(score,findings){
+// ================= RISK ANALYZER =================
+
+async function runScan(){
+
+document.getElementById("loading").innerText="Scanning...";
+document.getElementById("scanBtn").disabled=true;
+
+let score=0;
+let breakdown=[];
+
+let email=document.getElementById("emailInput").value;
+let username=document.getElementById("usernameInput").value;
+let password=document.getElementById("passwordInput").value;
+let contacts=parseInt(document.getElementById("contactInput").value)||0;
+
+let entropy=calculateEntropy(password);
+let passwordRisk=Math.max(0,80-entropy);
+score+=passwordRisk;
+breakdown.push("Password risk: "+passwordRisk);
+
+let breachCount=await checkBreach(password);
+if(breachCount>0){
+score+=30;
+breakdown.push("Breached "+breachCount+" times");
+}
+
+if(email.length<8){score+=10;breakdown.push("Short email");}
+if(username.length<5){score+=10;breakdown.push("Short username");}
+if(contacts>500){score+=10;breakdown.push("Large contact surface");}
+
+if(score>100)score=100;
+
+animateWheel(score);
+
+let category="";
+if(score<=30) category="Low";
+else if(score<=60) category="Medium";
+else if(score<=80) category="High";
+else category="Critical";
+
+document.getElementById("category").innerText="Risk Level: "+category;
+document.getElementById("breakdown").innerText=breakdown.join(" • ");
+
+document.getElementById("loading").innerText="";
+document.getElementById("scanBtn").disabled=false;
+document.getElementById("passwordInput").value="";
+}
+
+// ================= ANIMATED WHEEL =================
+
+function animateWheel(score){
 let circle=document.getElementById("progressCircle");
 let radius=85;
 let circumference=2*Math.PI*radius;
@@ -218,8 +288,5 @@ else if(current>30)circle.style.stroke="orange";
 else circle.style.stroke="green";
 
 document.getElementById("scoreText").innerText=current;
-},10);
-
-document.getElementById("resultText").innerText=
-findings.length?findings.join(" • "):"No major exposure detected.";
+},8);
 }

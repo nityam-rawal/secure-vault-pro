@@ -10,45 +10,26 @@
 <div class="container">
 
 <h1>🔐 Secure Vault Pro</h1>
-<p class="subtitle">100% Client-Side | Zero Storage | Zero Tracking</p>
+<p class="subtitle">Client-Side Cryptography & Transparent Risk Estimation</p>
 
 <div class="tabs">
 <button id="vaultTab" class="active" onclick="showTab('vault')">Vault</button>
 <button id="riskTab" onclick="showTab('risk')">Risk Analyzer</button>
+<button onclick="showTab('about')">About</button>
 </div>
 
 <!-- ================= VAULT ================= -->
 
 <div id="vault" class="tab-content">
 
-<!-- FILE ENCRYPTION -->
-<div class="card">
-<h2>📁 File Encryption</h2>
-
-<input type="file" id="fileInput">
-<input type="password" id="filePassword" placeholder="File password" oninput="checkFileStrength()">
-<input type="password" id="fileConfirmPassword" placeholder="Confirm password">
-
-<div id="fileStrength" class="strength"></div>
-
-<div class="btn-row">
-<button onclick="encryptFile()">Encrypt File</button>
-<button onclick="decryptFile()">Decrypt File</button>
-<button onclick="clearFile()">Clear</button>
-<button onclick="shareFile()">Share File</button>
-</div>
-</div>
-
-<!-- TEXT ENCRYPTION -->
 <div class="card">
 <h2>📝 Text Encryption (AES-256-GCM)</h2>
 
-<input type="password" id="textPassword" placeholder="Text password" oninput="checkTextStrength()">
-<input type="password" id="textConfirmPassword" placeholder="Confirm password">
-
+<input type="password" id="textPassword" placeholder="Password" oninput="checkTextStrength()">
+<input type="password" id="textConfirmPassword" placeholder="Confirm Password">
 <div id="textStrength" class="strength"></div>
 
-<textarea id="textInput" placeholder="Enter text or encrypted text"></textarea>
+<textarea id="textInput" placeholder="Enter text"></textarea>
 
 <div class="btn-row">
 <button onclick="encryptText()">Encrypt</button>
@@ -57,12 +38,29 @@
 <button onclick="shareText()">Share</button>
 </div>
 
-<textarea id="textOutput" placeholder="Output appears here"></textarea>
+<textarea id="textOutput" placeholder="Output"></textarea>
+<div id="integrityMsg"></div>
+</div>
+
+<div class="card">
+<h2>📁 File Encryption</h2>
+
+<input type="file" id="fileInput">
+<input type="password" id="filePassword" placeholder="Password" oninput="checkFileStrength()">
+<input type="password" id="fileConfirmPassword" placeholder="Confirm Password">
+<div id="fileStrength" class="strength"></div>
+
+<div class="btn-row">
+<button onclick="encryptFile()">Encrypt File</button>
+<button onclick="decryptFile()">Decrypt File</button>
+<button onclick="clearFile()">Clear</button>
 </div>
 
 </div>
 
-<!-- ================= RISK ANALYZER ================= -->
+</div>
+
+<!-- ================= RISK ================= -->
 
 <div id="risk" class="tab-content hidden">
 
@@ -72,13 +70,12 @@
 <input type="email" id="emailInput" placeholder="Email">
 <input type="text" id="usernameInput" placeholder="Username">
 <input type="password" id="passwordInput" placeholder="Password" oninput="checkRiskStrength()">
-<input type="number" id="contactInput" placeholder="Number of saved contacts">
+<input type="number" id="contactInput" placeholder="Number of contacts">
 
 <div id="riskStrength" class="strength"></div>
 
-<button onclick="runScan()">Run Privacy Scan</button>
-
-<div id="resultText"></div>
+<button id="scanBtn" onclick="runScan()">Run Scan</button>
+<div id="loading"></div>
 
 <div class="wheel">
 <svg width="200" height="200">
@@ -98,14 +95,32 @@ stroke-linecap="round"/>
 <div id="scoreText">0</div>
 </div>
 
-<div id="adviceText"></div>
+<div id="category"></div>
+<div id="breakdown"></div>
 
 <p class="privacy-note">
-All analysis runs locally. Only anonymous password hash prefix is sent for breach check.
+Scope: Password breach check via k-anonymity API.  
+Email/username/contact analysis = local heuristic only.
 </p>
 
 </div>
 
+</div>
+
+<!-- ================= ABOUT ================= -->
+
+<div id="about" class="tab-content hidden">
+<div class="card">
+<h2>🔎 Transparency & Trust</h2>
+<p>This app runs entirely in your browser.</p>
+<ul>
+<li>No database</li>
+<li>No tracking</li>
+<li>No analytics</li>
+<li>No recovery of forgotten passwords</li>
+<li>Encryption format: SVP1 | salt | iv | ciphertext</li>
+</ul>
+</div>
 </div>
 
 </div>
