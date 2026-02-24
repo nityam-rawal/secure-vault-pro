@@ -1,197 +1,225 @@
-document.addEventListener("DOMContentLoaded", () => {
+function showTab(tab){
+document.getElementById("vault").classList.add("hidden");
+document.getElementById("risk").classList.add("hidden");
+document.getElementById("vaultTab").classList.remove("active");
+document.getElementById("riskTab").classList.remove("active");
+document.getElementById(tab).classList.remove("hidden");
+document.getElementById(tab+"Tab").classList.add("active");
+}
 
-  if (!window.crypto || !window.crypto.subtle) {
-    document.body.innerHTML =
-      "<h2 style='color:white;text-align:center;margin-top:20%'>Secure browser required.</h2>";
-    return;
-  }
+/* ================= PASSWORD STRENGTH ================= */
 
-  // Prevent global drag-drop
-  window.addEventListener("dragover", e => e.preventDefault());
-  window.addEventListener("drop", e => e.preventDefault());
+function calculateStrength(p){
+let s=0;
+if(p.length>=8)s+=20;
+if(/[A-Z]/.test(p))s+=20;
+if(/[a-z]/.test(p))s+=10;
+if(/[0-9]/.test(p))s+=20;
+if(/[^A-Za-z0-9]/.test(p))s+=20;
+if(p.length>=12)s+=10;
+return s;
+}
 
-  const fileInput = document.getElementById("fileInput");
-  const preview = document.getElementById("preview");
+function displayStrength(id,value){
+let el=document.getElementById(id);
+let score=calculateStrength(value);
 
-  const filePassword = document.getElementById("filePassword");
-  const fileConfirmPassword = document.getElementById("fileConfirmPassword");
-  const textPassword = document.getElementById("textPassword");
-  const textConfirmPassword = document.getElementById("textConfirmPassword");
+if(!value){ el.innerText=""; return; }
 
-  const fileStrength = document.getElementById("fileStrength");
-  const textStrength = document.getElementById("textStrength");
+if(score<40){
+el.innerText="Weak – Add uppercase, numbers, symbols";
+el.className="strength weak";
+}
+else if(score<70){
+el.innerText="Medium – Increase length for better security";
+el.className="strength medium";
+}
+else{
+el.innerText="Strong – Good security level";
+el.className="strength strong";
+}
+}
 
-  const fileError = document.getElementById("fileError");
-  const textError = document.getElementById("textError");
+function checkTextStrength(){
+displayStrength("textStrength",document.getElementById("textPassword").value);
+}
 
-  function strengthCheck(pwd, el) {
-    let score = 0;
-    if (pwd.length >= 8) score++;
-    if (/[A-Z]/.test(pwd)) score++;
-    if (/[0-9]/.test(pwd)) score++;
-    if (/[^A-Za-z0-9]/.test(pwd)) score++;
-    const levels = ["Weak","Medium","Strong","Very Strong"];
-    el.textContent = score ? "Strength: " + levels[score-1] : "";
-  }
+function checkFileStrength(){
+displayStrength("fileStrength",document.getElementById("filePassword").value);
+}
 
-  filePassword.addEventListener("input", e => strengthCheck(e.target.value,fileStrength));
-  textPassword.addEventListener("input", e => strengthCheck(e.target.value,textStrength));
+function checkRiskStrength(){
+displayStrength("riskStrength",document.getElementById("passwordInput").value);
+}
 
-  function validate(p1,p2,errorEl){
-    errorEl.textContent="";
-    if(!p1||!p2) return errorEl.textContent="Enter password",false;
-    if(p1!==p2) return errorEl.textContent="Passwords do not match",false;
-    if(p1.length<8) return errorEl.textContent="Minimum 8 characters",false;
-    return true;
-  }
+/* ================= TEXT ENCRYPTION ================= */
 
-  async function deriveKey(password,salt){
-    const enc=new TextEncoder();
-    const keyMaterial=await crypto.subtle.importKey("raw",enc.encode(password),"PBKDF2",false,["deriveKey"]);
-    return crypto.subtle.deriveKey(
-      {name:"PBKDF2",salt,iterations:150000,hash:"SHA-256"},
-      keyMaterial,
-      {name:"AES-GCM",length:256},
-      false,
-      ["encrypt","decrypt"]
-    );
-  }
+async function encryptText(){
+let text=document.getElementById("textInput").value;
+let p1=document.getElementById("textPassword").value;
+let p2=document.getElementById("textConfirmPassword").value;
+if(!p1||p1!==p2){alert("Password mismatch");return;}
 
-  function clearFileFields(){
-    filePassword.value="";
-    fileConfirmPassword.value="";
-    fileStrength.textContent="";
-    fileError.textContent="";
-    preview.innerHTML="";
-  }
+let enc=new TextEncoder();
+let keyMaterial=await crypto.subtle.importKey("raw",enc.encode(p1),{name:"PBKDF2"},false,["deriveKey"]);
+let key=await crypto.subtle.deriveKey({
+name:"PBKDF2",salt:enc.encode("vault"),
+iterations:120000,hash:"SHA-256"
+},keyMaterial,{name:"AES-GCM",length:256},false,["encrypt"]);
 
-  function clearTextFields(){
-    textPassword.value="";
-    textConfirmPassword.value="";
-    textStrength.textContent="";
-    textError.textContent="";
-  }
+let iv=crypto.getRandomValues(new Uint8Array(12));
+let encrypted=await crypto.subtle.encrypt({name:"AES-GCM",iv},key,enc.encode(text));
+document.getElementById("textOutput").value=btoa(String.fromCharCode(...iv,...new Uint8Array(encrypted)));
+}
 
-  document.getElementById("clearFileBtn").onclick=clearFileFields;
-  document.getElementById("clearTextBtn").onclick=clearTextFields;
+async function decryptText(){
+try{
+let data=atob(document.getElementById("textInput").value);
+let password=document.getElementById("textPassword").value;
 
-  function download(data,filename){
-    const blob=new Blob([data]);
-    const url=URL.createObjectURL(blob);
-    const a=document.createElement("a");
-    a.href=url;
-    a.download=filename;
-    a.click();
-    URL.revokeObjectURL(url);
-  }
+let bytes=Uint8Array.from(data,c=>c.charCodeAt(0));
+let iv=bytes.slice(0,12);
+let encrypted=bytes.slice(12);
 
-  // FILE ENCRYPT
-  document.getElementById("encryptFileBtn").onclick=async()=>{
-    preview.innerHTML="";
-    if(!validate(filePassword.value,fileConfirmPassword.value,fileError))return;
-    const file=fileInput.files[0];
-    if(!file)return fileError.textContent="Select file";
+let enc=new TextEncoder();
+let keyMaterial=await crypto.subtle.importKey("raw",enc.encode(password),{name:"PBKDF2"},false,["deriveKey"]);
+let key=await crypto.subtle.deriveKey({
+name:"PBKDF2",salt:enc.encode("vault"),
+iterations:120000,hash:"SHA-256"
+},keyMaterial,{name:"AES-GCM",length:256},false,["decrypt"]);
 
-    const data=await file.arrayBuffer();
-    const salt=crypto.getRandomValues(new Uint8Array(16));
-    const iv=crypto.getRandomValues(new Uint8Array(12));
-    const key=await deriveKey(filePassword.value,salt);
+let decrypted=await crypto.subtle.decrypt({name:"AES-GCM",iv},key,encrypted);
+document.getElementById("textOutput").value=new TextDecoder().decode(decrypted);
+}catch{alert("Wrong password or invalid data");}
+}
 
-    const encrypted=await crypto.subtle.encrypt({name:"AES-GCM",iv},key,data);
-    const nameBytes=new TextEncoder().encode(file.name);
+function shareText(){
+let data=document.getElementById("textOutput").value;
+if(!data){alert("Nothing to share");return;}
+navigator.clipboard.writeText(data);
+alert("Copied to clipboard");
+}
 
-    const combined=new Uint8Array([
-      ...salt,
-      ...iv,
-      nameBytes.length,
-      ...nameBytes,
-      ...new Uint8Array(encrypted)
-    ]);
+function clearText(){
+document.getElementById("textInput").value="";
+document.getElementById("textOutput").value="";
+}
 
-    download(combined,file.name+".vault");
-    clearFileFields();
-  };
+/* ================= FILE ENCRYPTION ================= */
 
-  // FILE DECRYPT
-  document.getElementById("decryptFileBtn").onclick=async()=>{
-    preview.innerHTML="";
-    const file=fileInput.files[0];
-    if(!file||!filePassword.value)return fileError.textContent="Select file & password";
+let lastEncryptedFileBlob=null;
 
-    const data=new Uint8Array(await file.arrayBuffer());
-    const salt=data.slice(0,16);
-    const iv=data.slice(16,28);
-    const nameLength=data[28];
-    const name=new TextDecoder().decode(data.slice(29,29+nameLength));
-    const encrypted=data.slice(29+nameLength);
+async function encryptFile(){
+let file=document.getElementById("fileInput").files[0];
+let password=document.getElementById("filePassword").value;
+let confirm=document.getElementById("fileConfirmPassword").value;
+if(!file||password!==confirm){alert("Check file or password");return;}
 
-    const key=await deriveKey(filePassword.value,salt);
+let buffer=await file.arrayBuffer();
+let enc=new TextEncoder();
 
-    try{
-      const decrypted=await crypto.subtle.decrypt({name:"AES-GCM",iv},key,encrypted);
-      download(decrypted,name);
-      clearFileFields();
-    }catch{
-      fileError.textContent="Wrong password or corrupted file";
-    }
-  };
+let keyMaterial=await crypto.subtle.importKey("raw",enc.encode(password),{name:"PBKDF2"},false,["deriveKey"]);
+let key=await crypto.subtle.deriveKey({
+name:"PBKDF2",salt:enc.encode("vault"),
+iterations:120000,hash:"SHA-256"
+},keyMaterial,{name:"AES-GCM",length:256},false,["encrypt"]);
 
-  // TEXT ENCRYPT
-  document.getElementById("encryptTextBtn").onclick=async()=>{
-    if(!validate(textPassword.value,textConfirmPassword.value,textError))return;
-    const text=document.getElementById("textInput").value;
-    if(!text)return textError.textContent="Enter text";
+let iv=crypto.getRandomValues(new Uint8Array(12));
+let encrypted=await crypto.subtle.encrypt({name:"AES-GCM",iv},key,buffer);
 
-    const salt=crypto.getRandomValues(new Uint8Array(16));
-    const iv=crypto.getRandomValues(new Uint8Array(12));
-    const key=await deriveKey(textPassword.value,salt);
+lastEncryptedFileBlob=new Blob([iv,new Uint8Array(encrypted)]);
+let link=document.createElement("a");
+link.href=URL.createObjectURL(lastEncryptedFileBlob);
+link.download=file.name+".enc";
+link.click();
+}
 
-    const encrypted=await crypto.subtle.encrypt(
-      {name:"AES-GCM",iv},
-      key,
-      new TextEncoder().encode(text)
-    );
+function shareFile(){
+if(!lastEncryptedFileBlob){alert("No encrypted file yet");return;}
+navigator.clipboard.writeText("Encrypted file ready. Share downloaded file.");
+alert("File ready to share.");
+}
 
-    const combined=new Uint8Array([...salt,...iv,...new Uint8Array(encrypted)]);
-    document.getElementById("textOutput").value=
-      btoa(String.fromCharCode(...combined));
+function clearFile(){
+document.getElementById("fileInput").value="";
+}
 
-    clearTextFields();
-  };
+/* ================= RISK ANALYZER ================= */
 
-  // TEXT DECRYPT
-  document.getElementById("decryptTextBtn").onclick=async()=>{
-    const base64=document.getElementById("textInput").value;
-    if(!base64||!textPassword.value)return textError.textContent="Enter encrypted text & password";
+async function runScan(){
 
-    const data=Uint8Array.from(atob(base64),c=>c.charCodeAt(0));
-    const salt=data.slice(0,16);
-    const iv=data.slice(16,28);
-    const encrypted=data.slice(28);
+let score=0;
+let findings=[];
 
-    const key=await deriveKey(textPassword.value,salt);
+let email=document.getElementById("emailInput").value;
+let username=document.getElementById("usernameInput").value;
+let password=document.getElementById("passwordInput").value;
+let contacts=parseInt(document.getElementById("contactInput").value)||0;
 
-    try{
-      const decrypted=await crypto.subtle.decrypt({name:"AES-GCM",iv},key,encrypted);
-      document.getElementById("textOutput").value=
-        new TextDecoder().decode(decrypted);
-      clearTextFields();
-    }catch{
-      textError.textContent="Wrong password or corrupted text";
-    }
-  };
+// PASSWORD
+let strength=calculateStrength(password);
+score+=(100-strength);
+if(strength<50)findings.push("Weak password");
 
-  // AUTO LOCK (5 min)
-  let timer;
-  function resetTimer(){
-    clearTimeout(timer);
-    timer=setTimeout(()=>{
-      document.body.innerHTML=
-        "<h2 style='color:white;text-align:center;margin-top:20%'>Session Locked — Refresh Page</h2>";
-    },300000);
-  }
-  document.addEventListener("mousemove",resetTimer);
-  document.addEventListener("keydown",resetTimer);
-  resetTimer();
+let breached=await checkBreach(password);
+if(breached){score+=30;findings.push("Password found in breach database");}
 
-});
+// EMAIL
+if(email){
+if(email.length<8){score+=10;findings.push("Short email");}
+if(email.includes("123")){score+=10;findings.push("Predictable email pattern");}
+}
+
+// USERNAME
+if(username){
+if(username.length<5){score+=10;findings.push("Short username");}
+if(username.includes("123")){score+=10;}
+}
+
+// CONTACT SURFACE
+if(contacts>500){score+=10;findings.push("Large contact exposure surface");}
+if(contacts>1000){score+=10;}
+
+if(score>100)score=100;
+
+animateWheel(score,findings);
+
+document.getElementById("passwordInput").value="";
+}
+
+async function checkBreach(password){
+if(!password)return false;
+let enc=new TextEncoder();
+let hashBuffer=await crypto.subtle.digest("SHA-1",enc.encode(password));
+let hashArray=Array.from(new Uint8Array(hashBuffer));
+let hashHex=hashArray.map(b=>b.toString(16).padStart(2,"0")).join("").toUpperCase();
+
+let prefix=hashHex.substring(0,5);
+let suffix=hashHex.substring(5);
+
+let res=await fetch(`https://api.pwnedpasswords.com/range/${prefix}`);
+let txt=await res.text();
+return txt.includes(suffix);
+}
+
+function animateWheel(score,findings){
+let circle=document.getElementById("progressCircle");
+let radius=85;
+let circumference=2*Math.PI*radius;
+let current=0;
+
+let interval=setInterval(()=>{
+if(current>=score){clearInterval(interval);return;}
+current++;
+circle.style.strokeDashoffset=circumference-(current/100)*circumference;
+
+if(current>60)circle.style.stroke="red";
+else if(current>30)circle.style.stroke="orange";
+else circle.style.stroke="green";
+
+document.getElementById("scoreText").innerText=current;
+},10);
+
+document.getElementById("resultText").innerText=
+findings.length?findings.join(" • "):"No major exposure detected.";
+}

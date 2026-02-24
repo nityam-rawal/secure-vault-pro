@@ -1,97 +1,112 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-  <meta charset="UTF-8">
-  <title>Secure Vault Pro</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-
-  <!-- Strict CSP -->
-  <meta http-equiv="Content-Security-Policy"
-        content="default-src 'self';
-                 script-src 'self';
-                 style-src 'self';
-                 object-src 'none';
-                 base-uri 'none';">
-
-  <link rel="manifest" href="manifest.json">
-  <link rel="stylesheet" href="style.css">
+<meta charset="UTF-8">
+<title>Secure Vault Pro</title>
+<link rel="stylesheet" href="style.css">
 </head>
-
 <body>
 
 <div class="container">
 
-  <h1>🔐 Secure Vault Pro</h1>
-  <p class="version">Version 1.1.0</p>
-  <p class="subtitle">100% Client-Side | Zero Server Storage</p>
+<h1>🔐 Secure Vault Pro</h1>
+<p class="subtitle">100% Client-Side | Zero Storage | Zero Tracking</p>
 
-  <!-- FILE MODE -->
-  <div class="card">
-    <h2>📂 File Encryption</h2>
+<div class="tabs">
+<button id="vaultTab" class="active" onclick="showTab('vault')">Vault</button>
+<button id="riskTab" onclick="showTab('risk')">Risk Analyzer</button>
+</div>
 
-    <input type="file" id="fileInput">
+<!-- ================= VAULT ================= -->
 
-    <input type="password" id="filePassword"
-           placeholder="File password"
-           autocomplete="new-password">
+<div id="vault" class="tab-content">
 
-    <input type="password" id="fileConfirmPassword"
-           placeholder="Confirm password"
-           autocomplete="new-password">
+<!-- FILE ENCRYPTION -->
+<div class="card">
+<h2>📁 File Encryption</h2>
 
-    <div id="fileStrength" class="strength"></div>
-    <div id="fileError" class="error"></div>
+<input type="file" id="fileInput">
+<input type="password" id="filePassword" placeholder="File password" oninput="checkFileStrength()">
+<input type="password" id="fileConfirmPassword" placeholder="Confirm password">
 
-    <div class="btn-group">
-      <button id="encryptFileBtn">Encrypt File</button>
-      <button id="decryptFileBtn">Decrypt File</button>
-      <button id="clearFileBtn" class="secondary">Clear</button>
-    </div>
+<div id="fileStrength" class="strength"></div>
 
-    <div id="preview"></div>
-  </div>
+<div class="btn-row">
+<button onclick="encryptFile()">Encrypt File</button>
+<button onclick="decryptFile()">Decrypt File</button>
+<button onclick="clearFile()">Clear</button>
+<button onclick="shareFile()">Share File</button>
+</div>
+</div>
 
-  <!-- TEXT MODE -->
-  <div class="card">
-    <h2>📝 Text Encryption</h2>
+<!-- TEXT ENCRYPTION -->
+<div class="card">
+<h2>📝 Text Encryption (AES-256-GCM)</h2>
 
-    <input type="password" id="textPassword"
-           placeholder="Text password"
-           autocomplete="new-password">
+<input type="password" id="textPassword" placeholder="Text password" oninput="checkTextStrength()">
+<input type="password" id="textConfirmPassword" placeholder="Confirm password">
 
-    <input type="password" id="textConfirmPassword"
-           placeholder="Confirm password"
-           autocomplete="new-password">
+<div id="textStrength" class="strength"></div>
 
-    <div id="textStrength" class="strength"></div>
-    <div id="textError" class="error"></div>
+<textarea id="textInput" placeholder="Enter text or encrypted text"></textarea>
 
-    <textarea id="textInput"
-              placeholder="Enter text or encrypted text"></textarea>
+<div class="btn-row">
+<button onclick="encryptText()">Encrypt</button>
+<button onclick="decryptText()">Decrypt</button>
+<button onclick="clearText()">Clear</button>
+<button onclick="shareText()">Share</button>
+</div>
 
-    <div class="btn-group">
-      <button id="encryptTextBtn">Encrypt Text</button>
-      <button id="decryptTextBtn">Decrypt Text</button>
-      <button id="clearTextBtn" class="secondary">Clear</button>
-    </div>
+<textarea id="textOutput" placeholder="Output appears here"></textarea>
+</div>
 
-    <textarea id="textOutput"
-              placeholder="Output appears here"></textarea>
-  </div>
+</div>
 
-  <!-- ABOUT SECTION -->
-  <div class="card small">
-    <h3>How It Works</h3>
-    <p>
-      Encryption happens locally in your browser using AES-256-GCM.
-      Your password is never stored or transmitted.
-      No server communication occurs.
-    </p>
-  </div>
+<!-- ================= RISK ANALYZER ================= -->
 
-  <footer>
-    Offline Capable • No Tracking • No Data Collection
-  </footer>
+<div id="risk" class="tab-content hidden">
+
+<div class="card">
+<h2>🛡 Digital Risk Estimator</h2>
+
+<input type="email" id="emailInput" placeholder="Email">
+<input type="text" id="usernameInput" placeholder="Username">
+<input type="password" id="passwordInput" placeholder="Password" oninput="checkRiskStrength()">
+<input type="number" id="contactInput" placeholder="Number of saved contacts">
+
+<div id="riskStrength" class="strength"></div>
+
+<button onclick="runScan()">Run Privacy Scan</button>
+
+<div id="resultText"></div>
+
+<div class="wheel">
+<svg width="200" height="200">
+<circle cx="100" cy="100" r="85"
+stroke="#1e293b"
+stroke-width="15"
+fill="none"/>
+<circle id="progressCircle"
+cx="100" cy="100" r="85"
+stroke="green"
+stroke-width="15"
+fill="none"
+stroke-dasharray="534"
+stroke-dashoffset="534"
+stroke-linecap="round"/>
+</svg>
+<div id="scoreText">0</div>
+</div>
+
+<div id="adviceText"></div>
+
+<p class="privacy-note">
+All analysis runs locally. Only anonymous password hash prefix is sent for breach check.
+</p>
+
+</div>
+
+</div>
 
 </div>
 
