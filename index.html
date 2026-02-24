@@ -1,48 +1,98 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
   <meta charset="UTF-8">
   <title>Secure Vault Pro</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <!-- Strict CSP -->
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self';
+                 script-src 'self';
+                 style-src 'self';
+                 object-src 'none';
+                 base-uri 'none';">
+
+  <link rel="manifest" href="manifest.json">
   <link rel="stylesheet" href="style.css">
 </head>
+
 <body>
 
 <div class="container">
+
   <h1>🔐 Secure Vault Pro</h1>
+  <p class="version">Version 1.1.0</p>
+  <p class="subtitle">100% Client-Side | Zero Server Storage</p>
 
+  <!-- FILE MODE -->
   <div class="card">
-    <h2>File Mode</h2>
+    <h2>📂 File Encryption</h2>
 
-    <div id="dropArea">Drag & Drop File Here</div>
     <input type="file" id="fileInput">
 
-    <div class="password-box">
-  <input type="password" id="password" placeholder="Enter strong password">
-  <input type="password" id="confirmPassword" placeholder="Confirm password">
-  <button type="button" onclick="togglePassword()">Show / Hide</button>
-  <div id="strength"></div>
-</div>
+    <input type="password" id="filePassword"
+           placeholder="File password"
+           autocomplete="new-password">
 
-    <div class="buttons">
-      <button onclick="encryptFile()">Encrypt</button>
-      <button onclick="decryptFile()">Decrypt</button>
+    <input type="password" id="fileConfirmPassword"
+           placeholder="Confirm password"
+           autocomplete="new-password">
+
+    <div id="fileStrength" class="strength"></div>
+    <div id="fileError" class="error"></div>
+
+    <div class="btn-group">
+      <button id="encryptFileBtn">Encrypt File</button>
+      <button id="decryptFileBtn">Decrypt File</button>
+      <button id="clearFileBtn" class="secondary">Clear</button>
     </div>
 
     <div id="preview"></div>
   </div>
 
+  <!-- TEXT MODE -->
   <div class="card">
-    <h2>Text Mode</h2>
+    <h2>📝 Text Encryption</h2>
 
-    <textarea id="textInput" placeholder="Enter message or encrypted text"></textarea>
+    <input type="password" id="textPassword"
+           placeholder="Text password"
+           autocomplete="new-password">
 
-    <div class="buttons">
-      <button onclick="encryptText()">Encrypt Text</button>
-      <button onclick="decryptText()">Decrypt Text</button>
+    <input type="password" id="textConfirmPassword"
+           placeholder="Confirm password"
+           autocomplete="new-password">
+
+    <div id="textStrength" class="strength"></div>
+    <div id="textError" class="error"></div>
+
+    <textarea id="textInput"
+              placeholder="Enter text or encrypted text"></textarea>
+
+    <div class="btn-group">
+      <button id="encryptTextBtn">Encrypt Text</button>
+      <button id="decryptTextBtn">Decrypt Text</button>
+      <button id="clearTextBtn" class="secondary">Clear</button>
     </div>
 
-    <textarea id="textOutput" placeholder="Output appears here"></textarea>
+    <textarea id="textOutput"
+              placeholder="Output appears here"></textarea>
   </div>
+
+  <!-- ABOUT SECTION -->
+  <div class="card small">
+    <h3>How It Works</h3>
+    <p>
+      Encryption happens locally in your browser using AES-256-GCM.
+      Your password is never stored or transmitted.
+      No server communication occurs.
+    </p>
+  </div>
+
+  <footer>
+    Offline Capable • No Tracking • No Data Collection
+  </footer>
+
 </div>
 
 <script src="script.js"></script>
