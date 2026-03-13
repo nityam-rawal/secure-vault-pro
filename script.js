@@ -187,13 +187,6 @@ async function decryptText() {
         alert("❌ Decryption failed: Wrong password or corrupted data. " + err.message);
     }
 }
-            iterations: 120000, hash: "SHA-256"
-        }, keyMaterial, { name: "AES-GCM", length: 256 }, false, ["decrypt"]);
-
-        let decrypted = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, encrypted);
-        document.getElementById("textOutput").value = new TextDecoder().decode(decrypted);
-    } catch { alert("Wrong password or invalid data"); }
-}
 
 function shareText() {
     let data = document.getElementById("textOutput").value;
