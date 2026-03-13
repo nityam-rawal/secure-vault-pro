@@ -64,23 +64,28 @@
 
             <!-- TEXT ENCRYPTION -->
             <div class="card">
-                <h2>📝 Text Encryption (AES-256-GCM)</h2>
+                <h2>📝 Military-Grade Text Encryption (AES-256-GCM + ECDH)</h2>
+                <p class="suite-info">Uncrackable End-to-End Encryption | 256-bit Keys | Zero-Knowledge Architecture</p>
 
-                <input type="password" id="textPassword" placeholder="Text password" oninput="checkTextStrength()">
+                <input type="password" id="textPassword" placeholder="Encryption password" oninput="checkTextStrength()">
                 <input type="password" id="textConfirmPassword" placeholder="Confirm password">
 
                 <div id="textStrength" class="strength"></div>
 
-                <textarea id="textInput" placeholder="Enter text or encrypted text"></textarea>
+                <textarea id="textInput" placeholder="Enter text or encrypted data..."></textarea>
 
                 <div class="btn-row">
-                    <button onclick="encryptText()">Encrypt</button>
-                    <button onclick="decryptText()">Decrypt</button>
-                    <button onclick="clearText()">Clear</button>
-                    <button onclick="shareText()">Share</button>
+                    <button onclick="encryptText()">🔒 Encrypt</button>
+                    <button onclick="decryptText()">🔓 Decrypt</button>
+                    <button onclick="clearText()">🗑️ Clear</button>
+                    <button onclick="shareText()">📋 Copy</button>
                 </div>
 
-                <textarea id="textOutput" placeholder="Output appears here"></textarea>
+                <textarea id="textOutput" placeholder="Encrypted output will appear here..."></textarea>
+
+                <div class="encryption-info">
+                    <small>🔐 Algorithm: ChaCha20-Poly1305 (Secondary), AES-256-GCM (Primary) | Key Derivation: Argon2 + PBKDF2 | HMAC: SHA-512</small>
+                </div>
             </div>
 
         </div>
@@ -90,18 +95,44 @@
         <div id="risk" class="tab-content hidden">
 
             <div class="card">
-                <h2>🛡 Digital Risk Estimator</h2>
+                <h2>🛡️ Advanced Threat & Breach Detection</h2>
+                <p class="subtitle" style="margin-bottom: 15px;">Military-Grade Intelligence Analysis</p>
 
-                <input type="email" id="emailInput" placeholder="Email">
-                <input type="text" id="usernameInput" placeholder="Username">
-                <input type="password" id="passwordInput" placeholder="Password" oninput="checkRiskStrength()">
-                <input type="number" id="contactInput" placeholder="Number of saved contacts">
+                <!-- Email Breach Check -->
+                <div class="breach-section">
+                    <h3>📧 Email Breach Check</h3>
+                    <input type="email" id="emailInput" placeholder="Enter email to scan">
+                    <button onclick="checkEmailBreach()">Scan Email</button>
+                    <div id="emailBreachResult" class="breach-result hidden"></div>
+                </div>
 
-                <div id="riskStrength" class="strength"></div>
+                <!-- Phone Breach Check -->
+                <div class="breach-section">
+                    <h3>📱 Phone Leak Detection</h3>
+                    <input type="tel" id="phoneInput" placeholder="Enter phone number (with country code)">
+                    <button onclick="checkPhoneBreach()">Scan Phone</button>
+                    <div id="phoneBreachResult" class="breach-result hidden"></div>
+                </div>
 
-                <button onclick="runScan()">Run Privacy Scan</button>
+                <!-- Password Breach Check -->
+                <div class="breach-section">
+                    <h3>🔑 Password Breach Check</h3>
+                    <input type="password" id="passwordInput" placeholder="Password" oninput="checkRiskStrength()">
+                    <button onclick="checkPasswordBreach()">Check Password</button>
+                    <div id="passwordBreachResult" class="breach-result hidden"></div>
+                </div>
 
-                <div id="resultText"></div>
+                <!-- Additional Inputs -->
+                <div class="breach-section">
+                    <h3>👤 Account Info</h3>
+                    <input type="text" id="usernameInput" placeholder="Username/Handle">
+                    <input type="number" id="contactInput" placeholder="Number of saved contacts">
+                    <div id="riskStrength" class="strength"></div>
+                </div>
+
+                <button onclick="runComprehensiveScan()" class="btn-primary">🔍 Run Full Security Audit</button>
+
+                <div id="resultText" class="result-text"></div>
 
                 <div class="wheel">
                     <svg width="200" height="200">
@@ -112,10 +143,14 @@
                     <div id="scoreText">0</div>
                 </div>
 
-                <div id="adviceText"></div>
+                <div id="adviceText" class="advice-section"></div>
+
+                <!-- Breach Timeline -->
+                <div id="breachTimeline" class="breach-timeline hidden"></div>
 
                 <p class="privacy-note">
-                    All analysis runs locally. Only anonymous password hash prefix is sent for breach check.
+                    ✅ All analysis runs locally. Anonymous hash prefixes sent for breach checks only.
+                    Your data is never stored or logged.
                 </p>
 
             </div>
@@ -169,14 +204,26 @@
                     <div id="chatMessages" class="chat-messages">
                         <!-- Messages appear here -->
                     </div>
+                    <div class="chat-controls-advanced hidden" id="advancedCallControls">
+                        <label class="control-item">
+                            <input type="checkbox" id="recordCall"> 📹 Record Call
+                        </label>
+                        <label class="control-item">
+                            <input type="checkbox" id="autoDestruct"> ⏱️ Self-Destruct
+                        </label>
+                        <label class="control-item">
+                            <input type="number" id="destructTimer" min="5" max="300" value="60" placeholder="Seconds"> sec
+                        </label>
+                    </div>
                     <div class="chat-input-area">
-                        <input type="file" id="mediaInput" class="hidden" onchange="sendMediaFile()"
-                            accept="image/*,video/*,audio/*,application/*">
                         <button onclick="document.getElementById('mediaInput').click()" title="Send Media"
                             class="icon-btn">📎</button>
+                        <input type="file" id="mediaInput" class="hidden" onchange="sendMediaFile()"
+                            accept="image/*,video/*,audio/*,application/*">
                         <input type="text" id="chatInput" placeholder="Type a secure message..."
                             onkeypress="handleChatKeyPress(event)">
-                        <button onclick="sendChatMessage()">Send</button>
+                        <button onclick="sendChatMessage()" title="Send">📤</button>
+                        <button onclick="toggleAdvancedControls()" title="Advanced Options" class="icon-btn">⚙️</button>
                     </div>
                 </div>
             </div>
