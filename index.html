@@ -1,115 +1,202 @@
 <!DOCTYPE html>
 <html>
+
 <head>
-<meta charset="UTF-8">
-<title>Secure Vault Pro</title>
-<link rel="stylesheet" href="style.css">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Secure Vault Pro</title>
+    <link rel="manifest" href="manifest.json">
+    <link rel="stylesheet" href="style.css">
+    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
 </head>
+
 <body>
 
-<div class="container">
+    <!-- ================= USE POLICY MODAL ================= -->
+    <div id="termsModal" class="modal-overlay hidden">
+        <div class="modal-content">
+            <h2>⚠️ Important Security & Usage Notice</h2>
+            <p>Welcome to Secure Vault Pro. Before proceeding, you must agree to the following:</p>
+            <ul style="text-align: left; opacity: 0.9; margin-bottom: 20px;">
+                <li><b>Zero-Storage Reality:</b> This app is 100% client-side. Refreshing the page, clicking back, or
+                    closing the tab immediately and permanently destroys your connection and decrypted data.</li>
+                <li><b>Acceptable Use:</b> You agree to use this tool only for legal, educational, or corporate privacy
+                    purposes. You will not use the Secure Chat to transmit illicit or harmful material.</li>
+                <li><b>Beta Notice:</b> The browser environment cannot block OS-level screenshots. View-Once media is a
+                    deterrent, not a guarantee.</li>
+            </ul>
+            <button class="agree-btn" onclick="acceptTerms()">I Agree & Understand</button>
+        </div>
+    </div>
 
-<h1>🔐 Secure Vault Pro</h1>
-<p class="subtitle">100% Client-Side | Zero Storage | Zero Tracking</p>
+    <div class="container">
 
-<div class="tabs">
-<button id="vaultTab" class="active" onclick="showTab('vault')">Vault</button>
-<button id="riskTab" onclick="showTab('risk')">Risk Analyzer</button>
-</div>
+        <h1>🔐 Secure Vault Pro</h1>
+        <p class="subtitle">100% Client-Side | Zero Storage | Zero Tracking</p>
 
-<!-- ================= VAULT ================= -->
+        <div class="tabs">
+            <button id="vaultTab" class="active" onclick="showTab('vault')">Vault</button>
+            <button id="riskTab" onclick="showTab('risk')">Risk Analyzer</button>
+            <button id="chatTab" onclick="showTab('chat')">Secure Chat</button>
+        </div>
 
-<div id="vault" class="tab-content">
+        <!-- ================= VAULT ================= -->
 
-<!-- FILE ENCRYPTION -->
-<div class="card">
-<h2>📁 File Encryption</h2>
+        <div id="vault" class="tab-content">
 
-<input type="file" id="fileInput">
-<input type="password" id="filePassword" placeholder="File password" oninput="checkFileStrength()">
-<input type="password" id="fileConfirmPassword" placeholder="Confirm password">
+            <!-- FILE ENCRYPTION -->
+            <div class="card">
+                <h2>📁 File Encryption</h2>
 
-<div id="fileStrength" class="strength"></div>
+                <input type="file" id="fileInput">
+                <input type="password" id="filePassword" placeholder="File password" oninput="checkFileStrength()">
+                <input type="password" id="fileConfirmPassword" placeholder="Confirm password">
 
-<div class="btn-row">
-<button onclick="encryptFile()">Encrypt File</button>
-<button onclick="decryptFile()">Decrypt File</button>
-<button onclick="clearFile()">Clear</button>
-<button onclick="shareFile()">Share File</button>
-</div>
-</div>
+                <div id="fileStrength" class="strength"></div>
 
-<!-- TEXT ENCRYPTION -->
-<div class="card">
-<h2>📝 Text Encryption (AES-256-GCM)</h2>
+                <div class="btn-row">
+                    <button onclick="encryptFile()">Encrypt File</button>
+                    <button onclick="decryptFile()">Decrypt File</button>
+                    <button onclick="clearFile()">Clear</button>
+                    <button onclick="shareFile()">Share File</button>
+                </div>
+            </div>
 
-<input type="password" id="textPassword" placeholder="Text password" oninput="checkTextStrength()">
-<input type="password" id="textConfirmPassword" placeholder="Confirm password">
+            <!-- TEXT ENCRYPTION -->
+            <div class="card">
+                <h2>📝 Text Encryption (AES-256-GCM)</h2>
 
-<div id="textStrength" class="strength"></div>
+                <input type="password" id="textPassword" placeholder="Text password" oninput="checkTextStrength()">
+                <input type="password" id="textConfirmPassword" placeholder="Confirm password">
 
-<textarea id="textInput" placeholder="Enter text or encrypted text"></textarea>
+                <div id="textStrength" class="strength"></div>
 
-<div class="btn-row">
-<button onclick="encryptText()">Encrypt</button>
-<button onclick="decryptText()">Decrypt</button>
-<button onclick="clearText()">Clear</button>
-<button onclick="shareText()">Share</button>
-</div>
+                <textarea id="textInput" placeholder="Enter text or encrypted text"></textarea>
 
-<textarea id="textOutput" placeholder="Output appears here"></textarea>
-</div>
+                <div class="btn-row">
+                    <button onclick="encryptText()">Encrypt</button>
+                    <button onclick="decryptText()">Decrypt</button>
+                    <button onclick="clearText()">Clear</button>
+                    <button onclick="shareText()">Share</button>
+                </div>
 
-</div>
+                <textarea id="textOutput" placeholder="Output appears here"></textarea>
+            </div>
 
-<!-- ================= RISK ANALYZER ================= -->
+        </div>
 
-<div id="risk" class="tab-content hidden">
+        <!-- ================= RISK ANALYZER ================= -->
 
-<div class="card">
-<h2>🛡 Digital Risk Estimator</h2>
+        <div id="risk" class="tab-content hidden">
 
-<input type="email" id="emailInput" placeholder="Email">
-<input type="text" id="usernameInput" placeholder="Username">
-<input type="password" id="passwordInput" placeholder="Password" oninput="checkRiskStrength()">
-<input type="number" id="contactInput" placeholder="Number of saved contacts">
+            <div class="card">
+                <h2>🛡 Digital Risk Estimator</h2>
 
-<div id="riskStrength" class="strength"></div>
+                <input type="email" id="emailInput" placeholder="Email">
+                <input type="text" id="usernameInput" placeholder="Username">
+                <input type="password" id="passwordInput" placeholder="Password" oninput="checkRiskStrength()">
+                <input type="number" id="contactInput" placeholder="Number of saved contacts">
 
-<button onclick="runScan()">Run Privacy Scan</button>
+                <div id="riskStrength" class="strength"></div>
 
-<div id="resultText"></div>
+                <button onclick="runScan()">Run Privacy Scan</button>
 
-<div class="wheel">
-<svg width="200" height="200">
-<circle cx="100" cy="100" r="85"
-stroke="#1e293b"
-stroke-width="15"
-fill="none"/>
-<circle id="progressCircle"
-cx="100" cy="100" r="85"
-stroke="green"
-stroke-width="15"
-fill="none"
-stroke-dasharray="534"
-stroke-dashoffset="534"
-stroke-linecap="round"/>
-</svg>
-<div id="scoreText">0</div>
-</div>
+                <div id="resultText"></div>
 
-<div id="adviceText"></div>
+                <div class="wheel">
+                    <svg width="200" height="200">
+                        <circle cx="100" cy="100" r="85" stroke="#1e293b" stroke-width="15" fill="none" />
+                        <circle id="progressCircle" cx="100" cy="100" r="85" stroke="green" stroke-width="15"
+                            fill="none" stroke-dasharray="534" stroke-dashoffset="534" stroke-linecap="round" />
+                    </svg>
+                    <div id="scoreText">0</div>
+                </div>
 
-<p class="privacy-note">
-All analysis runs locally. Only anonymous password hash prefix is sent for breach check.
-</p>
+                <div id="adviceText"></div>
 
-</div>
+                <p class="privacy-note">
+                    All analysis runs locally. Only anonymous password hash prefix is sent for breach check.
+                </p>
 
-</div>
+            </div>
 
-</div>
+        </div>
 
-<script src="script.js"></script>
+        <!-- ================= SECURE CHAT ================= -->
+
+        <div id="chat" class="tab-content hidden">
+            <div class="card">
+                <h2>💬 P2P Secure Chat</h2>
+                <p class="subtitle" style="margin-bottom: 15px;">100% Client-Side. No servers. Direct connection.</p>
+
+                <div id="offlineBanner" class="hidden status-msg" style="color: #ef4444; margin-bottom: 10px;">
+                    ⚠️ You are offline. Vault & tools still work locally.
+                </div>
+
+                <div class="chat-connection">
+                    <div class="my-id-box">
+                        <span>Your ID:</span>
+                        <input type="text" id="myPeerId" readonly placeholder="Generating...">
+                        <button onclick="copyMyId()" title="Copy ID">📋</button>
+                        <button onclick="generateInviteLink()" title="Copy Invite Link">🔗 Invite</button>
+                    </div>
+                    <div class="connect-box">
+                        <input type="text" id="connectId" placeholder="Paste friend's ID here...">
+                        <button onclick="connectToPeer()">Connect</button>
+                    </div>
+                </div>
+
+                <div id="connectionStatus" class="status-msg">Waiting for connection...</div>
+
+                <div class="video-container hidden" id="videoContainer">
+                    <div class="video-wrapper">
+                        <video id="remoteVideo" autoplay playsinline></video>
+                        <span class="video-label">Peer</span>
+                    </div>
+                    <div class="video-wrapper self-view">
+                        <video id="localVideo" autoplay playsinline muted></video>
+                        <span class="video-label">You</span>
+                    </div>
+                    <button class="end-call-btn" onclick="endCall()" title="End Call">📞 End Call</button>
+                </div>
+
+                <div class="chat-window" id="chatWindow">
+                    <div class="call-controls hidden" id="callControls">
+                        <button class="call-btn" onclick="startCall(false)" title="Audio Call">📞 Call</button>
+                        <button class="call-btn" onclick="startCall(true)" title="Video Call">📹 Video</button>
+                    </div>
+
+                    <div id="chatMessages" class="chat-messages">
+                        <!-- Messages appear here -->
+                    </div>
+                    <div class="chat-input-area">
+                        <input type="file" id="mediaInput" class="hidden" onchange="sendMediaFile()"
+                            accept="image/*,video/*,audio/*,application/*">
+                        <button onclick="document.getElementById('mediaInput').click()" title="Send Media"
+                            class="icon-btn">📎</button>
+                        <input type="text" id="chatInput" placeholder="Type a secure message..."
+                            onkeypress="handleChatKeyPress(event)">
+                        <button onclick="sendChatMessage()">Send</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <script src="script.js"></script>
+    <script>
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('./sw.js')
+                    .then(reg => console.log('ServiceWorker registered:', reg.scope))
+                    .catch(err => console.log('ServiceWorker registration failed:', err));
+            });
+        }
+        window.addEventListener('offline', () => document.getElementById('offlineBanner').classList.remove('hidden'));
+        window.addEventListener('online', () => document.getElementById('offlineBanner').classList.add('hidden'));
+        if (!navigator.onLine) document.getElementById('offlineBanner').classList.remove('hidden');
+    </script>
 </body>
+
 </html>
