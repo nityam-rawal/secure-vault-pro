@@ -502,30 +502,6 @@ function animateWheel(score, findings) {
 
 let peer = null;
 let currentConnection = null;
-let localStream = null;
-let currentCall = null;
-let mediaRecorder = null;
-let recordedChunks = [];
-
-function createMeetState() {
-    return {
-        active: false,
-        isHost: false,
-        roomId: "",
-        hostId: "",
-        myName: "",
-        localStream: null,
-        participants: new Map(),
-        remoteStreams: new Map(),
-        controlConnection: null,
-        controlChannels: new Map(),
-        mediaCalls: new Map(),
-        audioEnabled: true,
-        videoEnabled: true
-    };
-}
-
-let meetState = createMeetState();
 
 function initPeer() {
     // Initialize PeerJS to generate our unique ID
@@ -540,7 +516,6 @@ function initPeer() {
 
     peer.on('open', (id) => {
         document.getElementById('myPeerId').value = id;
-        syncMeetInviteButton();
 
         // Check for auto-connect invite link
         const urlParams = new URLSearchParams(window.location.search);
@@ -550,26 +525,9 @@ function initPeer() {
             showTab('chat');
             setTimeout(() => connectToPeer(), 500);
         }
-
-        const meetRoomId = urlParams.get('meet');
-        if (meetRoomId) {
-            document.getElementById('meetRoomId').value = meetRoomId;
-            showTab('chat');
-            updateMeetStatus("Invite loaded. Add your name and tap Join Room.");
-        }
     });
 
     peer.on('connection', (conn) => {
-        const channel = conn.metadata?.channel || 'direct-chat';
-        if (channel === 'meet-control') {
-            if (!meetState.active || !meetState.isHost || conn.metadata?.roomId !== meetState.roomId) {
-                conn.on('open', () => conn.close());
-                return;
-            }
-            setupMeetControlConnection(conn);
-            return;
-        }
-
         if (currentConnection) {
             conn.close(); // Only allow one connection at a time
             return;
@@ -584,11 +542,6 @@ function initPeer() {
     });
 
     peer.on('call', (call) => {
-        if (call.metadata?.channel === 'meet-media') {
-            handleMeetIncomingCall(call);
-            return;
-        }
-
         if (currentCall) {
             call.close();
             return;
@@ -611,7 +564,7 @@ function connectToPeer() {
         currentConnection.close();
     }
     updateConnectionStatus("Connecting...");
-    let conn = peer.connect(connectId, { metadata: { channel: 'direct-chat' } });
+    let conn = peer.connect(connectId);
     setupConnectionStatus(conn);
 }
 
@@ -639,8 +592,6 @@ function setupConnectionStatus(conn) {
             appendMessage(data.content, 'peer');
         } else if (data.type === 'media') {
             renderIncomingMedia(data);
-        } else if (data.type === 'call-info') {
-            appendSystemMessage(`${data.callType} incoming...`);
         }
     });
 
@@ -695,16 +646,6 @@ function appendSystemMessage(text) {
     appendMessage(text, 'system');
 }
 
-function appendMeetMessage(text, type) {
-    let msgDiv = document.createElement("div");
-    msgDiv.className = "meet-msg " + type;
-    msgDiv.textContent = text;
-
-    let chatBox = document.getElementById("meetMessages");
-    chatBox.appendChild(msgDiv);
-    chatBox.scrollTop = chatBox.scrollHeight;
-}
-
 function updateConnectionStatus(msg) {
     let el = document.getElementById("connectionStatus");
     el.innerText = msg;
@@ -713,555 +654,6 @@ function updateConnectionStatus(msg) {
     } else {
         el.classList.remove("connected");
     }
-}
-
-function updateMeetStatus(msg, connected = false) {
-    let el = document.getElementById("meetStatus");
-    el.innerText = msg;
-    el.classList.toggle("connected", connected);
-}
-
-function syncMeetInviteButton() {
-    const btn = document.getElementById('copyMeetInviteBtn');
-    if (!btn) return;
-    btn.disabled = !document.getElementById('myPeerId').value;
-}
-
-function getMeetDisplayName() {
-    const input = document.getElementById('meetName');
-    const name = input.value.trim();
-    return name || `Guest-${(peer?.id || 'anon').slice(-4)}`;
-}
-
-function getLocalMeetParticipant() {
-    return {
-        id: peer.id,
-        name: meetState.myName,
-        audioEnabled: meetState.audioEnabled,
-        videoEnabled: meetState.videoEnabled,
-        isHost: meetState.isHost
-    };
-}
-
-function updateMeetPresenceText(text) {
-    document.getElementById('meetPresenceText').textContent = text;
-}
-
-function updateMeetParticipantCount() {
-    const count = meetState.participants.size || 1;
-    document.getElementById('meetParticipantCount').textContent = `${count} participant${count === 1 ? '' : 's'}`;
-}
-
-function refreshMeetHeader() {
-    const label = meetState.active ? `${meetState.isHost ? 'Hosting' : 'Joined'}: ${meetState.hostId}` : 'Room: Not started';
-    document.getElementById('meetRoomLabel').textContent = label;
-    updateMeetParticipantCount();
-}
-
-function resetMeetComposer() {
-    document.getElementById('meetChatInput').value = '';
-}
-
-function setMeetStageVisible(active) {
-    document.getElementById('meetStage').classList.toggle('hidden', !active);
-    document.getElementById('meetLobby').classList.toggle('hidden', active);
-}
-
-function getMeetTileStream(participantId) {
-    if (participantId === peer?.id) {
-        return meetState.localStream;
-    }
-    return meetState.remoteStreams.get(participantId) || null;
-}
-
-function buildMeetAvatar(name) {
-    const avatar = document.createElement('div');
-    avatar.className = 'meet-avatar-tile';
-
-    const ring = document.createElement('div');
-    ring.className = 'meet-avatar-ring';
-    ring.textContent = (name || '?').charAt(0).toUpperCase();
-
-    const label = document.createElement('div');
-    label.textContent = name || 'Participant';
-
-    avatar.appendChild(ring);
-    avatar.appendChild(label);
-    return avatar;
-}
-
-function upsertMeetTile(participant) {
-    const grid = document.getElementById('meetGrid');
-    let tile = document.getElementById(`meetTile-${participant.id}`);
-    if (!tile) {
-        tile = document.createElement('div');
-        tile.id = `meetTile-${participant.id}`;
-        tile.className = 'meet-tile';
-        grid.appendChild(tile);
-    }
-
-    tile.classList.toggle('is-muted', participant.audioEnabled === false);
-    tile.classList.toggle('is-camera-off', participant.videoEnabled === false);
-    tile.innerHTML = '';
-
-    const stream = getMeetTileStream(participant.id);
-    if (stream && participant.videoEnabled !== false) {
-        const video = document.createElement('video');
-        video.autoplay = true;
-        video.playsInline = true;
-        video.muted = participant.id === peer.id;
-        video.srcObject = stream;
-        tile.appendChild(video);
-    } else {
-        tile.appendChild(buildMeetAvatar(participant.name));
-    }
-
-    const caption = document.createElement('div');
-    caption.className = 'meet-tile-caption';
-
-    const name = document.createElement('span');
-    name.className = 'meet-tile-name';
-    name.textContent = participant.id === peer.id ? `${participant.name} (You)` : participant.name;
-
-    const meta = document.createElement('span');
-    meta.className = 'meet-tile-meta';
-    meta.textContent = participant.isHost ? 'Host' : 'Guest';
-
-    caption.appendChild(name);
-    caption.appendChild(meta);
-    tile.appendChild(caption);
-}
-
-function removeMeetTile(participantId) {
-    meetState.remoteStreams.delete(participantId);
-    const tile = document.getElementById(`meetTile-${participantId}`);
-    if (tile) {
-        tile.remove();
-    }
-}
-
-function syncMeetRoster(participants) {
-    const nextParticipants = new Map();
-    participants.forEach((participant) => {
-        nextParticipants.set(participant.id, participant);
-    });
-    nextParticipants.set(peer.id, getLocalMeetParticipant());
-
-    Array.from(meetState.participants.keys()).forEach((participantId) => {
-        if (!nextParticipants.has(participantId)) {
-            removeMeetTile(participantId);
-        }
-    });
-
-    meetState.participants = nextParticipants;
-    meetState.participants.forEach((participant) => {
-        upsertMeetTile(participant);
-    });
-
-    refreshMeetHeader();
-    connectToMeetPeers();
-}
-
-function broadcastMeetParticipantList() {
-    if (!meetState.isHost) return;
-    const participants = Array.from(meetState.participants.values());
-    meetState.participants.forEach((participant) => {
-        upsertMeetTile(participant);
-    });
-    connectToMeetPeers();
-    meetState.controlChannels.forEach((conn) => {
-        if (conn.open) {
-            conn.send({ type: 'participant-list', participants });
-        }
-    });
-    refreshMeetHeader();
-}
-
-function setupMeetControlConnection(conn) {
-    if (meetState.isHost) {
-        meetState.controlChannels.set(conn.peer, conn);
-    } else {
-        meetState.controlConnection = conn;
-    }
-
-    conn.on('data', (data) => handleMeetControlMessage(conn, data));
-
-    conn.on('close', () => {
-        if (meetState.isHost) {
-            meetState.controlChannels.delete(conn.peer);
-            if (meetState.participants.has(conn.peer)) {
-                const leavingName = meetState.participants.get(conn.peer).name;
-                meetState.participants.delete(conn.peer);
-                const activeCall = meetState.mediaCalls.get(conn.peer);
-                if (activeCall) {
-                    activeCall.close();
-                    meetState.mediaCalls.delete(conn.peer);
-                }
-                removeMeetTile(conn.peer);
-                appendMeetMessage(`${leavingName} left the room.`, 'system');
-                broadcastMeetParticipantList();
-            }
-        } else if (conn === meetState.controlConnection && meetState.active) {
-            updateMeetStatus("Disconnected from host.", false);
-            updateMeetPresenceText("Host connection lost");
-        }
-    });
-}
-
-function handleMeetControlMessage(conn, data) {
-    if (!data || !data.type) return;
-
-    if (meetState.isHost) {
-        if (data.type === 'register') {
-            const participant = {
-                id: conn.peer,
-                name: data.name || `Guest-${conn.peer.slice(-4)}`,
-                audioEnabled: true,
-                videoEnabled: true,
-                isHost: false
-            };
-            meetState.participants.set(conn.peer, participant);
-            conn.send({ type: 'room-ack', hostId: meetState.hostId });
-            appendMeetMessage(`${participant.name} joined the room.`, 'system');
-            upsertMeetTile(participant);
-            broadcastMeetParticipantList();
-        } else if (data.type === 'meet-chat') {
-            const payload = `${data.from}: ${data.text}`;
-            appendMeetMessage(payload, 'peer');
-            meetState.controlChannels.forEach((channel) => {
-                if (channel !== conn && channel.open) {
-                    channel.send({ type: 'chat', from: data.from, text: data.text });
-                }
-            });
-        } else if (data.type === 'participant-state') {
-            const current = meetState.participants.get(conn.peer);
-            if (!current) return;
-            meetState.participants.set(conn.peer, {
-                ...current,
-                audioEnabled: data.audioEnabled,
-                videoEnabled: data.videoEnabled
-            });
-            upsertMeetTile(meetState.participants.get(conn.peer));
-            broadcastMeetParticipantList();
-        } else if (data.type === 'leave-room') {
-            conn.close();
-        }
-        return;
-    }
-
-    if (data.type === 'room-ack') {
-        updateMeetStatus("Connected to host. Building room mesh...", true);
-        updateMeetPresenceText(`Connected to host ${data.hostId}`);
-    } else if (data.type === 'participant-list') {
-        syncMeetRoster(data.participants || []);
-        updateMeetStatus("Room live. Participants are connected peer-to-peer.", true);
-    } else if (data.type === 'chat') {
-        appendMeetMessage(`${data.from}: ${data.text}`, 'peer');
-    } else if (data.type === 'host-ended') {
-        alert("Host ended the room.");
-        leaveMeetRoom(false);
-    }
-}
-
-function connectToMeetPeers() {
-    if (!meetState.active || !meetState.localStream) return;
-
-    meetState.participants.forEach((participant) => {
-        if (participant.id === peer.id) return;
-        if (meetState.mediaCalls.has(participant.id)) return;
-        if (peer.id > participant.id) return;
-
-        const call = peer.call(participant.id, meetState.localStream, {
-            metadata: {
-                channel: 'meet-media',
-                roomId: meetState.roomId,
-                name: meetState.myName
-            }
-        });
-        attachMeetCallHandlers(call, participant.id);
-    });
-}
-
-function attachMeetCallHandlers(call, participantId) {
-    meetState.mediaCalls.set(participantId, call);
-
-    call.on('stream', (remoteStream) => {
-        meetState.remoteStreams.set(participantId, remoteStream);
-        const participant = meetState.participants.get(participantId) || {
-            id: participantId,
-            name: call.metadata?.name || `Guest-${participantId.slice(-4)}`,
-            audioEnabled: true,
-            videoEnabled: true,
-            isHost: participantId === meetState.hostId
-        };
-        meetState.participants.set(participantId, participant);
-        upsertMeetTile(participant);
-        refreshMeetHeader();
-    });
-
-    call.on('close', () => {
-        meetState.mediaCalls.delete(participantId);
-        meetState.remoteStreams.delete(participantId);
-        const participant = meetState.participants.get(participantId);
-        if (participant) {
-            upsertMeetTile(participant);
-        } else {
-            removeMeetTile(participantId);
-        }
-    });
-
-    call.on('error', (err) => {
-        console.error("Meet media error:", err);
-        meetState.mediaCalls.delete(participantId);
-    });
-}
-
-async function ensureMeetLocalStream() {
-    if (meetState.localStream) return meetState.localStream;
-
-    meetState.localStream = await navigator.mediaDevices.getUserMedia({
-        video: { width: { ideal: 1280 }, height: { ideal: 720 } },
-        audio: {
-            noiseSuppression: true,
-            echoCancellation: true,
-            autoGainControl: true
-        }
-    });
-    return meetState.localStream;
-}
-
-async function createMeetRoom() {
-    if (!peer?.id) {
-        alert("Peer is still starting. Please wait a moment.");
-        return;
-    }
-
-    if (meetState.active) {
-        leaveMeetRoom(false);
-    }
-
-    try {
-        meetState = createMeetState();
-        meetState.active = true;
-        meetState.isHost = true;
-        meetState.roomId = peer.id;
-        meetState.hostId = peer.id;
-        meetState.myName = getMeetDisplayName();
-        document.getElementById('meetRoomId').value = meetState.hostId;
-        await ensureMeetLocalStream();
-        meetState.participants.set(peer.id, getLocalMeetParticipant());
-
-        setMeetStageVisible(true);
-        upsertMeetTile(getLocalMeetParticipant());
-        refreshMeetHeader();
-        resetMeetComposer();
-        appendMeetMessage(`Room created by ${meetState.myName}.`, 'system');
-        updateMeetPresenceText("Waiting for participants");
-        updateMeetStatus("Room live. Share invite to let others join.", true);
-    } catch (err) {
-        meetState = createMeetState();
-        setMeetStageVisible(false);
-        updateMeetStatus(`Could not start room: ${err.message}`, false);
-        alert("Meet permission error: " + err.message);
-    }
-}
-
-async function joinMeetRoom() {
-    const hostId = document.getElementById('meetRoomId').value.trim();
-    if (!peer?.id) {
-        alert("Peer is still starting. Please wait a moment.");
-        return;
-    }
-    if (!hostId) {
-        alert("Enter a room host ID to join.");
-        return;
-    }
-    if (hostId === peer.id) {
-        alert("This is your own host ID. Use Create Room instead.");
-        return;
-    }
-
-    if (meetState.active) {
-        leaveMeetRoom(false);
-    }
-
-    try {
-        meetState = createMeetState();
-        meetState.active = true;
-        meetState.isHost = false;
-        meetState.roomId = hostId;
-        meetState.hostId = hostId;
-        meetState.myName = getMeetDisplayName();
-        document.getElementById('meetRoomId').value = meetState.hostId;
-        await ensureMeetLocalStream();
-        meetState.participants.set(peer.id, getLocalMeetParticipant());
-
-        setMeetStageVisible(true);
-        upsertMeetTile(getLocalMeetParticipant());
-        refreshMeetHeader();
-        resetMeetComposer();
-        updateMeetPresenceText("Connecting to host");
-        updateMeetStatus("Joining room...", false);
-
-        const conn = peer.connect(hostId, {
-            metadata: {
-                channel: 'meet-control',
-                roomId: hostId,
-                name: meetState.myName
-            }
-        });
-        meetState.controlConnection = conn;
-        setupMeetControlConnection(conn);
-        conn.on('open', () => {
-            conn.send({ type: 'register', name: meetState.myName });
-        });
-        conn.on('error', (err) => {
-            console.error("Meet control error:", err);
-            updateMeetStatus(`Join failed: ${err.type || err.message}`, false);
-        });
-    } catch (err) {
-        meetState = createMeetState();
-        setMeetStageVisible(false);
-        updateMeetStatus(`Could not join room: ${err.message}`, false);
-        alert("Meet permission error: " + err.message);
-    }
-}
-
-function copyMeetInvite() {
-    const hostId = meetState.active ? meetState.hostId : document.getElementById('myPeerId').value;
-    if (!hostId) {
-        alert("Peer ID is not ready yet.");
-        return;
-    }
-    const url = `${window.location.origin}${window.location.pathname}?meet=${encodeURIComponent(hostId)}`;
-    navigator.clipboard.writeText(url);
-    updateMeetStatus("Invite link copied to clipboard.", true);
-}
-
-function handleMeetIncomingCall(call) {
-    if (!meetState.active || call.metadata?.roomId !== meetState.roomId) {
-        call.close();
-        return;
-    }
-
-    Promise.resolve(ensureMeetLocalStream())
-        .then((stream) => {
-            call.answer(stream);
-            attachMeetCallHandlers(call, call.peer);
-        })
-        .catch((err) => {
-            console.error("Incoming meet call failed:", err);
-            call.close();
-        });
-}
-
-function sendMeetControl(data) {
-    if (meetState.isHost) return;
-    if (meetState.controlConnection && meetState.controlConnection.open) {
-        meetState.controlConnection.send(data);
-    }
-}
-
-function handleMeetChatKeyPress(event) {
-    if (event.key === 'Enter') {
-        sendMeetMessage();
-    }
-}
-
-function sendMeetMessage() {
-    if (!meetState.active) {
-        alert("Create or join a room first.");
-        return;
-    }
-
-    const input = document.getElementById('meetChatInput');
-    const text = input.value.trim();
-    if (!text) return;
-
-    appendMeetMessage(`${meetState.myName}: ${text}`, 'self');
-    input.value = '';
-
-    if (meetState.isHost) {
-        meetState.controlChannels.forEach((conn) => {
-            if (conn.open) {
-                conn.send({ type: 'chat', from: meetState.myName, text });
-            }
-        });
-    } else {
-        sendMeetControl({ type: 'meet-chat', from: meetState.myName, text });
-    }
-}
-
-function syncLocalMeetState() {
-    if (!meetState.active) return;
-    meetState.participants.set(peer.id, getLocalMeetParticipant());
-    upsertMeetTile(getLocalMeetParticipant());
-    refreshMeetHeader();
-
-    if (meetState.isHost) {
-        broadcastMeetParticipantList();
-    } else {
-        sendMeetControl({
-            type: 'participant-state',
-            audioEnabled: meetState.audioEnabled,
-            videoEnabled: meetState.videoEnabled
-        });
-    }
-}
-
-function toggleMeetMic() {
-    if (!meetState.localStream) return;
-    meetState.audioEnabled = !meetState.audioEnabled;
-    meetState.localStream.getAudioTracks().forEach((track) => {
-        track.enabled = meetState.audioEnabled;
-    });
-    document.getElementById('meetMicBtn').textContent = meetState.audioEnabled ? 'Mute' : 'Unmute';
-    syncLocalMeetState();
-}
-
-function toggleMeetCamera() {
-    if (!meetState.localStream) return;
-    meetState.videoEnabled = !meetState.videoEnabled;
-    meetState.localStream.getVideoTracks().forEach((track) => {
-        track.enabled = meetState.videoEnabled;
-    });
-    document.getElementById('meetCameraBtn').textContent = meetState.videoEnabled ? 'Camera Off' : 'Camera On';
-    syncLocalMeetState();
-}
-
-function leaveMeetRoom(notifyHost = true) {
-    if (!meetState.active) return;
-
-    if (meetState.isHost) {
-        meetState.controlChannels.forEach((conn) => {
-            if (conn.open) {
-                conn.send({ type: 'host-ended' });
-            }
-            conn.close();
-        });
-    } else if (notifyHost) {
-        sendMeetControl({ type: 'leave-room' });
-    }
-
-    if (meetState.controlConnection) {
-        meetState.controlConnection.close();
-    }
-
-    meetState.mediaCalls.forEach((call) => call.close());
-    if (meetState.localStream) {
-        meetState.localStream.getTracks().forEach((track) => track.stop());
-    }
-
-    document.getElementById('meetGrid').innerHTML = '';
-    document.getElementById('meetMessages').innerHTML = '';
-    document.getElementById('meetMicBtn').textContent = 'Mute';
-    document.getElementById('meetCameraBtn').textContent = 'Camera Off';
-    updateMeetPresenceText("Lobby mode");
-    setMeetStageVisible(false);
-
-    meetState = createMeetState();
-    updateMeetStatus("Ready to create or join a secure room.");
-    refreshMeetHeader();
 }
 
 // Initialize Peer automatically when the script loads
@@ -1376,6 +768,11 @@ function renderIncomingMedia(data) {
 
 /* ================= ENHANCED AUDIO / VIDEO CALLS WITH RECORDING ================= */
 
+let localStream = null;
+let currentCall = null;
+let mediaRecorder = null;
+let recordedChunks = [];
+
 function toggleAdvancedControls() {
     let controls = document.getElementById("advancedCallControls");
     controls.classList.toggle("hidden");
@@ -1407,9 +804,7 @@ async function startCall(videoEnabled) {
             initializeCallRecording(localStream, videoEnabled);
         }
 
-        currentCall = peer.call(currentConnection.peer, localStream, {
-            metadata: { channel: 'direct-call' }
-        });
+        currentCall = peer.call(currentConnection.peer, localStream);
         setupCallHandlers(currentCall);
         
         let callType = videoEnabled ? "🎥 Video Call" : "📞 Audio Call";
