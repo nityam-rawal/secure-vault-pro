@@ -507,6 +507,10 @@ let currentCall = null;
 let mediaRecorder = null;
 let recordedChunks = [];
 let pendingMeetInvite = null;
+const MEET_LIMITS = {
+    meshMaxParticipants: 12,
+    sfuScaleTarget: 1000
+};
 
 function createMeetState() {
     return {
@@ -559,13 +563,17 @@ function initPeer() {
 
         const meetRoomId = urlParams.get('meet');
         const meetHostId = urlParams.get('host');
-        if (meetRoomId || meetHostId) {
+        if (meetRoomId && meetHostId) {
             pendingMeetInvite = {
                 roomId: (meetRoomId || '').trim().toUpperCase(),
                 hostId: (meetHostId || '').trim()
             };
             showTab('chat');
             updateMeetStatus("Invite loaded. Enter passcode and tap Join Room.");
+        } else if (meetRoomId || meetHostId) {
+            pendingMeetInvite = null;
+            showTab('chat');
+            updateMeetStatus("Invite link is incomplete. Ask host to resend.", false);
         }
     });
 
@@ -581,8 +589,11 @@ function initPeer() {
         }
 
         if (currentConnection) {
-            conn.close(); // Only allow one connection at a time
-            return;
+            if (currentConnection.open) {
+                conn.close(); // Only allow one active direct-chat connection at a time
+                return;
+            }
+            currentConnection = null;
         }
         setupConnectionStatus(conn);
     });
@@ -608,6 +619,11 @@ function initPeer() {
 }
 
 function connectToPeer() {
+    if (!peer || peer.destroyed) {
+        alert("Peer is not ready. Refresh and try again.");
+        return;
+    }
+
     let connectId = document.getElementById("connectId").value.trim();
     if (!connectId) {
         alert("Please enter an ID to connect.");
@@ -621,14 +637,21 @@ function connectToPeer() {
         currentConnection.close();
     }
     updateConnectionStatus("Connecting...");
-    let conn = peer.connect(connectId, { metadata: { channel: 'direct-chat' } });
-    setupConnectionStatus(conn);
+    try {
+        let conn = peer.connect(connectId, { metadata: { channel: 'direct-chat', mode: 'p2p' } });
+        setupConnectionStatus(conn);
+    } catch (err) {
+        updateConnectionStatus("Connection failed.");
+        appendSystemMessage("Connection setup error. Please retry.");
+        console.error("Direct chat connect error:", err);
+    }
 }
 
 function setupConnectionStatus(conn) {
     currentConnection = conn;
 
     const onConnectionOpen = () => {
+        if (currentConnection !== conn) return;
         updateConnectionStatus("Connected to peer!");
         appendSystemMessage("Secure connection established.");
         document.getElementById("connectId").value = "";
@@ -654,7 +677,18 @@ function setupConnectionStatus(conn) {
         }
     });
 
+    conn.on('error', (err) => {
+        if (currentConnection === conn) {
+            updateConnectionStatus("Connection error.");
+            appendSystemMessage("Peer connection error. Try reconnecting.");
+            document.getElementById("callControls").classList.add('hidden');
+            currentConnection = null;
+        }
+        console.error("Direct connection error:", err);
+    });
+
     conn.on('close', () => {
+        if (currentConnection !== conn) return;
         updateConnectionStatus("Connection closed.");
         appendSystemMessage("Peer disconnected.");
         document.getElementById("callControls").classList.add('hidden');
@@ -738,6 +772,17 @@ function generateSecureSalt() {
 }
 
 async function sha256Hex(text) {
+    if (!crypto?.subtle?.digest) {
+        // Fallback for non-secure contexts (e.g. opening HTML directly via file://)
+        // This keeps room flow working locally, but cryptographic assurance is reduced.
+        let hash = 2166136261;
+        for (let i = 0; i < text.length; i += 1) {
+            hash ^= text.charCodeAt(i);
+            hash = Math.imul(hash, 16777619);
+        }
+        return (hash >>> 0).toString(16).padStart(8, '0').repeat(8);
+    }
+
     const enc = new TextEncoder();
     const buffer = await crypto.subtle.digest("SHA-256", enc.encode(text));
     return Array.from(new Uint8Array(buffer), (value) => value.toString(16).padStart(2, '0')).join('');
@@ -777,8 +822,14 @@ function updateMeetStatus(msg, connected = false) {
 
 function syncMeetInviteButton() {
     const btn = document.getElementById('copyMeetInviteBtn');
-    if (!btn) return;
-    btn.disabled = !document.getElementById('myPeerId').value;
+    const sendBtn = document.getElementById('sendMeetInviteBtn');
+    const stageSendBtn = document.getElementById('stageSendMeetInviteBtn');
+    if (!btn || !sendBtn || !stageSendBtn) return;
+
+    const canShare = !!(peer?.id && meetState.active && meetState.roomId && meetState.hostId);
+    btn.disabled = !canShare;
+    sendBtn.disabled = !canShare;
+    stageSendBtn.disabled = !canShare;
 }
 
 function getMeetDisplayName() {
@@ -810,6 +861,7 @@ function refreshMeetHeader() {
     const label = meetState.active ? (meetState.isHost ? 'Room: Live and protected' : 'Room: Connected securely') : 'Room: Not started';
     document.getElementById('meetRoomLabel').textContent = label;
     updateMeetParticipantCount();
+    syncMeetInviteButton();
 }
 
 function resetMeetComposer() {
@@ -884,6 +936,17 @@ function upsertMeetTile(participant) {
     caption.appendChild(name);
     caption.appendChild(meta);
     tile.appendChild(caption);
+
+    if (meetState.isHost && participant.id !== peer.id) {
+        const actions = document.createElement('div');
+        actions.className = 'meet-host-actions';
+        actions.innerHTML = `
+            <button type="button" onclick="hostMeetAction('mute','${participant.id}')">Mute</button>
+            <button type="button" onclick="hostMeetAction('camera-off','${participant.id}')">Cam Off</button>
+            <button type="button" onclick="hostMeetAction('remove','${participant.id}')">Remove</button>
+        `;
+        tile.appendChild(actions);
+    }
 }
 
 function removeMeetTile(participantId) {
@@ -935,6 +998,23 @@ function isAuthorizedMeetPeer(peerId) {
     if (peerId === peer?.id) return true;
     if (meetState.isHost) return meetState.authenticatedPeers.has(peerId);
     return meetState.participants.has(peerId);
+}
+
+function hostMeetAction(action, participantId) {
+    if (!meetState.active || !meetState.isHost) return;
+    const targetConn = meetState.controlChannels.get(participantId);
+    if (!targetConn || !targetConn.open) {
+        appendMeetMessage("Participant control channel is not available.", 'system');
+        return;
+    }
+    targetConn.send({ type: 'host-action', action, targetId: participantId });
+    if (action === 'remove') {
+        appendMeetMessage("Host removed a participant.", 'system');
+    } else if (action === 'mute') {
+        appendMeetMessage("Host requested participant mute.", 'system');
+    } else if (action === 'camera-off') {
+        appendMeetMessage("Host requested participant camera off.", 'system');
+    }
 }
 
 function setupMeetControlConnection(conn) {
@@ -1010,6 +1090,14 @@ function handleMeetControlMessage(conn, data) {
                     conn.close();
                     return;
                 }
+                if (meetState.participants.size >= MEET_LIMITS.meshMaxParticipants) {
+                    conn.send({
+                        type: 'auth-failed',
+                        reason: `Room full for browser mesh mode (${MEET_LIMITS.meshMaxParticipants} users). 1000-user meetings need SFU backend.`
+                    });
+                    conn.close();
+                    return;
+                }
 
                 const participant = {
                     id: conn.peer,
@@ -1078,6 +1166,28 @@ function handleMeetControlMessage(conn, data) {
         updateMeetStatus("Room live. Participants are connected peer-to-peer.", true);
     } else if (data.type === 'chat') {
         appendMeetMessage(`${data.from}: ${data.text}`, 'peer');
+    } else if (data.type === 'host-action') {
+        if (data.targetId !== peer.id) return;
+        if (data.action === 'mute') {
+            meetState.audioEnabled = false;
+            if (meetState.localStream) {
+                meetState.localStream.getAudioTracks().forEach((track) => { track.enabled = false; });
+            }
+            document.getElementById('meetMicBtn').textContent = 'Unmute';
+            syncLocalMeetState();
+            appendMeetMessage("Host muted your mic.", 'system');
+        } else if (data.action === 'camera-off') {
+            meetState.videoEnabled = false;
+            if (meetState.localStream) {
+                meetState.localStream.getVideoTracks().forEach((track) => { track.enabled = false; });
+            }
+            document.getElementById('meetCameraBtn').textContent = 'Camera On';
+            syncLocalMeetState();
+            appendMeetMessage("Host turned off your camera.", 'system');
+        } else if (data.action === 'remove') {
+            alert("Host removed you from the meeting.");
+            leaveMeetRoom(false);
+        }
     } else if (data.type === 'auth-failed') {
         alert(data.reason || "Authentication failed.");
         leaveMeetRoom(false);
@@ -1172,13 +1282,17 @@ async function createMeetRoom() {
         meetState.roomId = generateSecureMeetingCode();
         meetState.hostId = peer.id;
         meetState.myName = getMeetDisplayName();
-        meetState.passcode = generateSecurePasscode();
+        const typedPasscode = getMeetField('meetPasscode').value.trim();
+        if (typedPasscode && typedPasscode.length < 8) {
+            alert("Passcode should be at least 8 characters.");
+            return;
+        }
+        meetState.passcode = typedPasscode || generateSecurePasscode();
         meetState.salt = generateSecureSalt();
         meetState.authSecret = await buildMeetAuthSecret(meetState.roomId, meetState.passcode, meetState.salt);
         populateMeetFields({
             passcode: meetState.passcode
         });
-        await ensureMeetLocalStream();
         meetState.participants.set(peer.id, getLocalMeetParticipant());
 
         setMeetStageVisible(true);
@@ -1186,15 +1300,29 @@ async function createMeetRoom() {
         refreshMeetHeader();
         resetMeetComposer();
         appendMeetMessage(`Room created by ${meetState.myName}.`, 'system');
-        appendMeetMessage("Secure room generated internally.", 'system');
+        appendMeetMessage("Room created successfully. You can share invite now.", 'system');
         appendMeetMessage("Invite link ready. Share passcode separately over a trusted channel.", 'system');
+        appendMeetMessage(`Current mode: browser mesh (${MEET_LIMITS.meshMaxParticipants} participants max).`, 'system');
+        appendMeetMessage(`For ${MEET_LIMITS.sfuScaleTarget}+ participants, connect an SFU backend (LiveKit/Janus/mediasoup).`, 'system');
         updateMeetPresenceText("Waiting for authenticated participants");
-        updateMeetStatus("Secure room live. Share invite link and passcode separately.", true);
+        updateMeetStatus("Room created. Click Copy Invite and share passcode.", true);
+        syncMeetInviteButton();
+
+        // Don't block room creation on media permission; request it in background.
+        ensureMeetLocalStream()
+            .then(() => {
+                syncLocalMeetState();
+                updateMeetStatus("Room created and media ready. Share invite + passcode.", true);
+            })
+            .catch((err) => {
+                appendMeetMessage("Camera/mic permission denied. Room is still active for text and invite sharing.", 'system');
+                updateMeetStatus(`Room created. Media permission blocked: ${err.message}`, true);
+            });
     } catch (err) {
         meetState = createMeetState();
         setMeetStageVisible(false);
         updateMeetStatus(`Could not start room: ${err.message}`, false);
-        alert("Meet permission error: " + err.message);
+        alert("Meet creation failed: " + err.message);
     }
 }
 
@@ -1276,6 +1404,29 @@ function copyMeetInvite() {
     const url = `${window.location.origin}${window.location.pathname}?meet=${encodeURIComponent(roomId)}&host=${encodeURIComponent(hostId)}`;
     navigator.clipboard.writeText(url);
     updateMeetStatus("Invite link copied. Share passcode separately for better security.", true);
+    return url;
+}
+
+async function sendMeetInvite() {
+    const inviteUrl = copyMeetInvite();
+    if (!inviteUrl) return;
+    const text = `Join my secure meet:\n${inviteUrl}\nPasscode: ${meetState.passcode || '(ask host)'}`;
+
+    if (navigator.share) {
+        try {
+            await navigator.share({
+                title: 'Secure Meet Invite',
+                text
+            });
+            updateMeetStatus("Invite sent successfully.", true);
+            return;
+        } catch {
+            // fall back to copy-only flow below
+        }
+    }
+
+    navigator.clipboard.writeText(text);
+    updateMeetStatus("Invite copied as full message (link + passcode).", true);
 }
 
 function handleMeetIncomingCall(call) {
@@ -1404,6 +1555,7 @@ function leaveMeetRoom(notifyHost = true) {
     pendingMeetInvite = null;
     updateMeetStatus("Ready to create or join a secure room.");
     refreshMeetHeader();
+    syncMeetInviteButton();
 }
 
 // Initialize Peer automatically when the script loads
