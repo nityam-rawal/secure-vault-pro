@@ -255,13 +255,9 @@ button:hover {
 
 /* ================= SECURE CHAT ================= */
 
-.p2p-card,
-.meet-card {
-    padding-top: 0;
-}
-
-.p2p-card {
-    margin-bottom: 24px;
+.comm-stack {
+    display: grid;
+    gap: 24px;
 }
 
 .p2p-shell,
