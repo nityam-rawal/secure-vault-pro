@@ -514,12 +514,17 @@ function createMeetState() {
         roomId: "",
         hostId: "",
         myName: "",
+        passcode: "",
+        salt: "",
+        authSecret: "",
         localStream: null,
         participants: new Map(),
         remoteStreams: new Map(),
         controlConnection: null,
         controlChannels: new Map(),
         mediaCalls: new Map(),
+        authenticatedPeers: new Set(),
+        pendingChallenges: new Map(),
         audioEnabled: true,
         videoEnabled: true
     };
@@ -552,10 +557,14 @@ function initPeer() {
         }
 
         const meetRoomId = urlParams.get('meet');
-        if (meetRoomId) {
-            document.getElementById('meetRoomId').value = meetRoomId;
+        const meetHostId = urlParams.get('host');
+        if (meetRoomId || meetHostId) {
+            populateMeetFields({
+                roomId: meetRoomId || "",
+                hostId: meetHostId || ""
+            });
             showTab('chat');
-            updateMeetStatus("Invite loaded. Add your name and tap Join Room.");
+            updateMeetStatus("Invite loaded. Enter passcode and tap Join Room.");
         }
     });
 
@@ -705,6 +714,52 @@ function appendMeetMessage(text, type) {
     chatBox.scrollTop = chatBox.scrollHeight;
 }
 
+function getMeetField(id) {
+    return document.getElementById(id);
+}
+
+function generateSecureMeetingCode() {
+    const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+    const bytes = crypto.getRandomValues(new Uint8Array(12));
+    const chars = Array.from(bytes, (value) => alphabet[value % alphabet.length]);
+    return `${chars.slice(0, 4).join('')}-${chars.slice(4, 8).join('')}-${chars.slice(8, 12).join('')}`;
+}
+
+function generateSecurePasscode() {
+    const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%";
+    const bytes = crypto.getRandomValues(new Uint8Array(16));
+    return Array.from(bytes, (value) => alphabet[value % alphabet.length]).join('');
+}
+
+function generateSecureSalt() {
+    const bytes = crypto.getRandomValues(new Uint8Array(16));
+    return Array.from(bytes, (value) => value.toString(16).padStart(2, '0')).join('');
+}
+
+async function sha256Hex(text) {
+    const enc = new TextEncoder();
+    const buffer = await crypto.subtle.digest("SHA-256", enc.encode(text));
+    return Array.from(new Uint8Array(buffer), (value) => value.toString(16).padStart(2, '0')).join('');
+}
+
+async function buildMeetAuthSecret(roomId, passcode, salt) {
+    return sha256Hex(`${roomId}|${passcode}|${salt}|SecureMeetProof`);
+}
+
+async function buildMeetJoinProof(authSecret, nonce, peerId) {
+    return sha256Hex(`${authSecret}|${nonce}|${peerId}|join`);
+}
+
+function populateMeetFields({ roomId = "", passcode = "", hostId = "" } = {}) {
+    getMeetField('meetRoomCode').value = roomId;
+    getMeetField('meetPasscode').value = passcode;
+    getMeetField('meetHostId').value = hostId;
+}
+
+function clearMeetSensitiveInputs() {
+    getMeetField('meetPasscode').value = '';
+}
+
 function updateConnectionStatus(msg) {
     let el = document.getElementById("connectionStatus");
     el.innerText = msg;
@@ -753,8 +808,9 @@ function updateMeetParticipantCount() {
 }
 
 function refreshMeetHeader() {
-    const label = meetState.active ? `${meetState.isHost ? 'Hosting' : 'Joined'}: ${meetState.hostId}` : 'Room: Not started';
+    const label = meetState.active ? `${meetState.isHost ? 'Hosting' : 'Joined'}: ${meetState.roomId}` : 'Room: Not started';
     document.getElementById('meetRoomLabel').textContent = label;
+    document.getElementById('meetHostLabel').textContent = meetState.active ? `Host: ${meetState.hostId}` : 'Host: Not connected';
     updateMeetParticipantCount();
 }
 
@@ -877,6 +933,12 @@ function broadcastMeetParticipantList() {
     refreshMeetHeader();
 }
 
+function isAuthorizedMeetPeer(peerId) {
+    if (peerId === peer?.id) return true;
+    if (meetState.isHost) return meetState.authenticatedPeers.has(peerId);
+    return meetState.participants.has(peerId);
+}
+
 function setupMeetControlConnection(conn) {
     if (meetState.isHost) {
         meetState.controlChannels.set(conn.peer, conn);
@@ -889,6 +951,8 @@ function setupMeetControlConnection(conn) {
     conn.on('close', () => {
         if (meetState.isHost) {
             meetState.controlChannels.delete(conn.peer);
+            meetState.authenticatedPeers.delete(conn.peer);
+            meetState.pendingChallenges.delete(conn.peer);
             if (meetState.participants.has(conn.peer)) {
                 const leavingName = meetState.participants.get(conn.peer).name;
                 meetState.participants.delete(conn.peer);
@@ -912,20 +976,62 @@ function handleMeetControlMessage(conn, data) {
     if (!data || !data.type) return;
 
     if (meetState.isHost) {
-        if (data.type === 'register') {
-            const participant = {
-                id: conn.peer,
-                name: data.name || `Guest-${conn.peer.slice(-4)}`,
-                audioEnabled: true,
-                videoEnabled: true,
-                isHost: false
-            };
-            meetState.participants.set(conn.peer, participant);
-            conn.send({ type: 'room-ack', hostId: meetState.hostId });
-            appendMeetMessage(`${participant.name} joined the room.`, 'system');
-            upsertMeetTile(participant);
-            broadcastMeetParticipantList();
+        if (data.type === 'auth-init') {
+            if (data.roomId !== meetState.roomId) {
+                conn.send({ type: 'auth-failed', reason: 'Meeting ID mismatch.' });
+                conn.close();
+                return;
+            }
+
+            const nonce = generateSecureSalt();
+            meetState.pendingChallenges.set(conn.peer, {
+                nonce,
+                issuedAt: Date.now(),
+                name: data.name || `Guest-${conn.peer.slice(-4)}`
+            });
+            conn.send({
+                type: 'auth-challenge',
+                roomId: meetState.roomId,
+                salt: meetState.salt,
+                nonce
+            });
+        } else if (data.type === 'auth-response') {
+            const challenge = meetState.pendingChallenges.get(conn.peer);
+            if (!challenge) {
+                conn.send({ type: 'auth-failed', reason: 'Challenge expired. Retry join.' });
+                conn.close();
+                return;
+            }
+
+            meetState.pendingChallenges.delete(conn.peer);
+            const isExpired = Date.now() - challenge.issuedAt > 30000;
+            const expectedProofPromise = buildMeetJoinProof(meetState.authSecret, challenge.nonce, conn.peer);
+            Promise.resolve(expectedProofPromise).then((expectedProof) => {
+                if (isExpired || expectedProof !== data.proof) {
+                    conn.send({ type: 'auth-failed', reason: 'Invalid passcode proof.' });
+                    conn.close();
+                    return;
+                }
+
+                const participant = {
+                    id: conn.peer,
+                    name: challenge.name,
+                    audioEnabled: true,
+                    videoEnabled: true,
+                    isHost: false
+                };
+                meetState.authenticatedPeers.add(conn.peer);
+                meetState.participants.set(conn.peer, participant);
+                conn.send({ type: 'room-ack', hostId: meetState.hostId, roomId: meetState.roomId });
+                appendMeetMessage(`${participant.name} joined the room.`, 'system');
+                upsertMeetTile(participant);
+                broadcastMeetParticipantList();
+            });
         } else if (data.type === 'meet-chat') {
+            if (!meetState.authenticatedPeers.has(conn.peer)) {
+                conn.close();
+                return;
+            }
             const payload = `${data.from}: ${data.text}`;
             appendMeetMessage(payload, 'peer');
             meetState.controlChannels.forEach((channel) => {
@@ -934,6 +1040,10 @@ function handleMeetControlMessage(conn, data) {
                 }
             });
         } else if (data.type === 'participant-state') {
+            if (!meetState.authenticatedPeers.has(conn.peer)) {
+                conn.close();
+                return;
+            }
             const current = meetState.participants.get(conn.peer);
             if (!current) return;
             meetState.participants.set(conn.peer, {
@@ -949,7 +1059,20 @@ function handleMeetControlMessage(conn, data) {
         return;
     }
 
-    if (data.type === 'room-ack') {
+    if (data.type === 'auth-challenge') {
+        if (data.roomId !== meetState.roomId) {
+            updateMeetStatus("Host returned wrong room challenge.", false);
+            return;
+        }
+
+        buildMeetAuthSecret(meetState.roomId, meetState.passcode, data.salt)
+            .then((authSecret) => {
+                return buildMeetJoinProof(authSecret, data.nonce, peer.id);
+            })
+            .then((proof) => {
+                sendMeetControl({ type: 'auth-response', roomId: meetState.roomId, proof });
+            });
+    } else if (data.type === 'room-ack') {
         updateMeetStatus("Connected to host. Building room mesh...", true);
         updateMeetPresenceText(`Connected to host ${data.hostId}`);
     } else if (data.type === 'participant-list') {
@@ -957,6 +1080,9 @@ function handleMeetControlMessage(conn, data) {
         updateMeetStatus("Room live. Participants are connected peer-to-peer.", true);
     } else if (data.type === 'chat') {
         appendMeetMessage(`${data.from}: ${data.text}`, 'peer');
+    } else if (data.type === 'auth-failed') {
+        alert(data.reason || "Authentication failed.");
+        leaveMeetRoom(false);
     } else if (data.type === 'host-ended') {
         alert("Host ended the room.");
         leaveMeetRoom(false);
@@ -968,6 +1094,7 @@ function connectToMeetPeers() {
 
     meetState.participants.forEach((participant) => {
         if (participant.id === peer.id) return;
+        if (meetState.isHost && !meetState.authenticatedPeers.has(participant.id)) return;
         if (meetState.mediaCalls.has(participant.id)) return;
         if (peer.id > participant.id) return;
 
@@ -1044,10 +1171,17 @@ async function createMeetRoom() {
         meetState = createMeetState();
         meetState.active = true;
         meetState.isHost = true;
-        meetState.roomId = peer.id;
+        meetState.roomId = generateSecureMeetingCode();
         meetState.hostId = peer.id;
         meetState.myName = getMeetDisplayName();
-        document.getElementById('meetRoomId').value = meetState.hostId;
+        meetState.passcode = generateSecurePasscode();
+        meetState.salt = generateSecureSalt();
+        meetState.authSecret = await buildMeetAuthSecret(meetState.roomId, meetState.passcode, meetState.salt);
+        populateMeetFields({
+            roomId: meetState.roomId,
+            passcode: meetState.passcode,
+            hostId: meetState.hostId
+        });
         await ensureMeetLocalStream();
         meetState.participants.set(peer.id, getLocalMeetParticipant());
 
@@ -1056,8 +1190,10 @@ async function createMeetRoom() {
         refreshMeetHeader();
         resetMeetComposer();
         appendMeetMessage(`Room created by ${meetState.myName}.`, 'system');
-        updateMeetPresenceText("Waiting for participants");
-        updateMeetStatus("Room live. Share invite to let others join.", true);
+        appendMeetMessage(`Meeting ID: ${meetState.roomId}`, 'system');
+        appendMeetMessage("Passcode generated. Share it over a separate trusted channel.", 'system');
+        updateMeetPresenceText("Waiting for authenticated participants");
+        updateMeetStatus("Secure room live. Share invite link and passcode separately.", true);
     } catch (err) {
         meetState = createMeetState();
         setMeetStageVisible(false);
@@ -1067,13 +1203,23 @@ async function createMeetRoom() {
 }
 
 async function joinMeetRoom() {
-    const hostId = document.getElementById('meetRoomId').value.trim();
+    const roomId = getMeetField('meetRoomCode').value.trim().toUpperCase();
+    const passcode = getMeetField('meetPasscode').value.trim();
+    const hostId = getMeetField('meetHostId').value.trim();
     if (!peer?.id) {
         alert("Peer is still starting. Please wait a moment.");
         return;
     }
+    if (!roomId) {
+        alert("Enter a meeting ID to join.");
+        return;
+    }
+    if (!passcode) {
+        alert("Enter the meeting passcode.");
+        return;
+    }
     if (!hostId) {
-        alert("Enter a room host ID to join.");
+        alert("Enter the host connection ID or open the invite link.");
         return;
     }
     if (hostId === peer.id) {
@@ -1089,10 +1235,14 @@ async function joinMeetRoom() {
         meetState = createMeetState();
         meetState.active = true;
         meetState.isHost = false;
-        meetState.roomId = hostId;
+        meetState.roomId = roomId;
         meetState.hostId = hostId;
         meetState.myName = getMeetDisplayName();
-        document.getElementById('meetRoomId').value = meetState.hostId;
+        meetState.passcode = passcode;
+        populateMeetFields({
+            roomId: meetState.roomId,
+            hostId: meetState.hostId
+        });
         await ensureMeetLocalStream();
         meetState.participants.set(peer.id, getLocalMeetParticipant());
 
@@ -1106,14 +1256,14 @@ async function joinMeetRoom() {
         const conn = peer.connect(hostId, {
             metadata: {
                 channel: 'meet-control',
-                roomId: hostId,
+                roomId: roomId,
                 name: meetState.myName
             }
         });
         meetState.controlConnection = conn;
         setupMeetControlConnection(conn);
         conn.on('open', () => {
-            conn.send({ type: 'register', name: meetState.myName });
+            conn.send({ type: 'auth-init', name: meetState.myName, roomId: meetState.roomId });
         });
         conn.on('error', (err) => {
             console.error("Meet control error:", err);
@@ -1128,18 +1278,19 @@ async function joinMeetRoom() {
 }
 
 function copyMeetInvite() {
-    const hostId = meetState.active ? meetState.hostId : document.getElementById('myPeerId').value;
-    if (!hostId) {
-        alert("Peer ID is not ready yet.");
+    const hostId = meetState.active ? meetState.hostId : getMeetField('meetHostId').value.trim() || document.getElementById('myPeerId').value;
+    const roomId = meetState.active ? meetState.roomId : getMeetField('meetRoomCode').value.trim();
+    if (!hostId || !roomId) {
+        alert("Create a room first so invite data is available.");
         return;
     }
-    const url = `${window.location.origin}${window.location.pathname}?meet=${encodeURIComponent(hostId)}`;
+    const url = `${window.location.origin}${window.location.pathname}?meet=${encodeURIComponent(roomId)}&host=${encodeURIComponent(hostId)}`;
     navigator.clipboard.writeText(url);
-    updateMeetStatus("Invite link copied to clipboard.", true);
+    updateMeetStatus("Invite link copied. Share passcode separately for better security.", true);
 }
 
 function handleMeetIncomingCall(call) {
-    if (!meetState.active || call.metadata?.roomId !== meetState.roomId) {
+    if (!meetState.active || call.metadata?.roomId !== meetState.roomId || !isAuthorizedMeetPeer(call.peer)) {
         call.close();
         return;
     }
@@ -1260,6 +1411,7 @@ function leaveMeetRoom(notifyHost = true) {
     setMeetStageVisible(false);
 
     meetState = createMeetState();
+    clearMeetSensitiveInputs();
     updateMeetStatus("Ready to create or join a secure room.");
     refreshMeetHeader();
 }

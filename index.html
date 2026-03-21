@@ -28,59 +28,6 @@
             <button class="agree-btn" onclick="acceptTerms()">I Agree & Understand</button>
         </div>
     </div>
-
-    <div id="reviewModal" class="modal-overlay hidden">
-        <div class="modal-content review-modal">
-            <h2>⭐ Share Your Feedback</h2>
-            <p style="opacity: 0.8;">Help us improve Secure Vault Pro with your valuable feedback!</p>
-            
-            <div class="review-form">
-                <div class="form-group">
-                    <label>Your Name/Username:</label>
-                    <input type="text" id="reviewName" placeholder="Enter your name or username" maxlength="50">
-                </div>
-
-                <div class="form-group">
-                    <label>Email (Optional):</label>
-                    <input type="email" id="reviewEmail" placeholder="your.email@example.com">
-                </div>
-
-                <div class="form-group">
-                    <label>⭐ Rating:</label>
-                    <div class="star-rating" id="starRating">
-                        <span class="star" onclick="setRating(1)">★</span>
-                        <span class="star" onclick="setRating(2)">★</span>
-                        <span class="star" onclick="setRating(3)">★</span>
-                        <span class="star" onclick="setRating(4)">★</span>
-                        <span class="star" onclick="setRating(5)">★</span>
-                    </div>
-                    <div id="ratingValue" style="text-align: center; margin-top: 8px; color: var(--neon-blue); font-weight: bold;">Select Rating</div>
-                </div>
-
-                <div class="form-group">
-                    <label>What did you like most?</label>
-                    <textarea id="reviewPositive" placeholder="e.g., Great encryption, easy to use..." maxlength="300"></textarea>
-                </div>
-
-                <div class="form-group">
-                    <label>What could be improved?</label>
-                    <textarea id="reviewImprovement" placeholder="e.g., UI could be better, add feature X..." maxlength="300"></textarea>
-                </div>
-
-                <div class="form-group">
-                    <label>
-                        <input type="checkbox" id="reviewContact"> Want to be featured on our website?
-                    </label>
-                </div>
-            </div>
-
-            <div class="modal-actions">
-                <button class="btn-cancel" onclick="closeReview()">Cancel</button>
-                <button class="btn-submit" onclick="submitReview()">📤 Send Review</button>
-            </div>
-        </div>
-    </div>
-
     <div class="container">
 
         <h1>🔐 Secure Vault Pro</h1>
@@ -91,8 +38,7 @@
                 <button id="vaultTab" class="active" onclick="showTab('vault')">Vault</button>
                 <button id="riskTab" onclick="showTab('risk')">Risk Analyzer</button>
                 <button id="chatTab" onclick="showTab('chat')">Secure Chat</button>
-                <button id="reviewTab" onclick="showTab('review')">⭐ Reviews</button>
-            </div>
+                            </div>
         </div>
 
         <!-- ================= VAULT ================= -->
@@ -297,8 +243,14 @@
                                 <label for="meetName">Display name</label>
                                 <input type="text" id="meetName" placeholder="Enter your meeting name">
 
-                                <label for="meetRoomId">Room host ID</label>
-                                <input type="text" id="meetRoomId" placeholder="Paste room host ID to join">
+                                <label for="meetRoomCode">Meeting ID</label>
+                                <input type="text" id="meetRoomCode" placeholder="Secure meeting ID" autocomplete="off">
+
+                                <label for="meetPasscode">Passcode</label>
+                                <input type="password" id="meetPasscode" placeholder="Meeting passcode" autocomplete="off">
+
+                                <label for="meetHostId">Host connection ID</label>
+                                <input type="text" id="meetHostId" placeholder="Auto-filled from invite link or host share" autocomplete="off">
 
                                 <div class="meet-lobby-actions">
                                     <button onclick="createMeetRoom()">Create Room</button>
@@ -310,11 +262,11 @@
                             </div>
 
                             <div class="meet-lobby-card meet-lobby-tips">
-                                <h4>How it works</h4>
+                                <h4>Security design</h4>
                                 <ul>
-                                    <li>Create room to become the host and share your invite link.</li>
-                                    <li>Join room using the host ID or invite link.</li>
-                                    <li>Participants connect directly for room chat, audio, and video.</li>
+                                    <li>Each room gets a random Meeting ID and strong passcode from browser crypto.</li>
+                                    <li>Invite link carries connection coordinates, but passcode stays separate for safer sharing.</li>
+                                    <li>Host validates a nonce-based proof before any participant enters the room mesh.</li>
                                 </ul>
                             </div>
                         </div>
@@ -324,6 +276,7 @@
                         <div class="meet-stage-bar">
                             <div class="meet-stage-meta">
                                 <span class="meet-room-pill" id="meetRoomLabel">Room: Not started</span>
+                                <span class="meet-room-pill" id="meetHostLabel">Host: Not connected</span>
                                 <span class="meet-room-pill" id="meetParticipantCount">1 participant</span>
                             </div>
                             <div class="meet-stage-actions">
@@ -357,83 +310,6 @@
             </div>
         </div>
 
-        <!-- ================= REVIEWS ================= -->
-        <div id="review" class="tab-content hidden">
-            <div class="card">
-                <h2>⭐ Share Your Feedback</h2>
-                <p class="subtitle" style="margin-bottom: 20px;">Help us improve Secure Vault Pro with your valuable feedback!</p>
-
-                <div class="review-instructions">
-                    <p>✅ Your feedback is important to us!</p>
-                    <p>📝 Please fill out the form below with:</p>
-                    <ul style="margin-left: 20px;">
-                        <li><strong>Your Name/Username</strong> - For attribution</li>
-                        <li><strong>⭐ Rating</strong> - How would you rate this app? (1-5 stars)</li>
-                        <li><strong>What You Liked</strong> - Positive feedback</li>
-                        <li><strong>Suggestions</strong> - What can be improved?</li>
-                        <li><strong>Email (Optional)</strong> - We'll reach out to thank you!</li>
-                    </ul>
-                </div>
-
-                <div class="google-form-container">
-                    <!-- REPLACE THIS WITH YOUR GOOGLE FORM LINK -->
-                    <iframe 
-                        src="https://docs.google.com/forms/d/e/YOUR_FORM_ID_HERE/viewform?embedded=true" 
-                        width="100%" 
-                        height="700" 
-                        frameborder="0" 
-                        marginheight="0" 
-                        marginwidth="0"
-                        title="Secure Vault Pro Review Form">
-                        Loading...
-                    </iframe>
-                    
-                    <div class="form-setup-notice" id="formSetupNotice">
-                        <h3>🔧 Setup Your Google Form</h3>
-                        <p><strong>Admin Instructions:</strong></p>
-                        <ol>
-                            <li>Go to <a href="https://forms.google.com" target="_blank" style="color: var(--neon-blue);">forms.google.com</a></li>
-                            <li>Create a new form titled "Secure Vault Pro Reviews"</li>
-                            <li>Add these questions:<br>
-                                • <strong>Text:</strong> "What is your name or username?"<br>
-                                • <strong>Rating Scale (1-5):</strong> "How would you rate Secure Vault Pro?"<br>
-                                • <strong>Paragraph:</strong> "What did you like most about the app?"<br>
-                                • <strong>Paragraph:</strong> "What could be improved?"<br>
-                                • <strong>Email:</strong> "Your email (optional)"
-                            </li>
-                            <li>Click <strong>Share</strong> button (top right)</li>
-                            <li>Copy the Form ID from the URL</li>
-                            <li>Replace <strong>YOUR_FORM_ID_HERE</strong> in the iframe src above</li>
-                            <li>Save and reload the page</li>
-                        </ol>
-                        <p>📧 <strong>All responses will automatically go to your Gmail inbox and Google Sheets!</strong></p>
-                    </div>
-                </div>
-
-                <div class="review-benefits">
-                    <h3>✨ Why Submit a Review?</h3>
-                    <div class="benefits-grid">
-                        <div class="benefit-item">
-                            <span class="benefit-icon">🎯</span>
-                            <p><strong>Help Us Improve</strong><br>Your feedback directly shapes the future of Secure Vault Pro</p>
-                        </div>
-                        <div class="benefit-item">
-                            <span class="benefit-icon">🌟</span>
-                            <p><strong>Get Featured</strong><br>Top reviewers may be featured on our website!</p>
-                        </div>
-                        <div class="benefit-item">
-                            <span class="benefit-icon">🤝</span>
-                            <p><strong>Connect With Us</strong><br>We read every review and respond to suggestions</p>
-                        </div>
-                        <div class="benefit-item">
-                            <span class="benefit-icon">🔐</span>
-                            <p><strong>100% Private</strong><br>Your data goes directly to Google Forms - we respect your privacy</p>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-
     </div>
 
     <script src="script.js"></script>
@@ -452,3 +328,4 @@
 </body>
 
 </html>
+
