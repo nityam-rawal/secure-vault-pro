@@ -502,6 +502,8 @@ function animateWheel(score, findings) {
 
 let peer = null;
 let currentConnection = null;
+let pendingConnection = null;
+const MAX_CONNECT_RETRIES = 3;
 
 function initPeer() {
     // Initialize PeerJS to generate our unique ID
@@ -516,6 +518,9 @@ function initPeer() {
 
     peer.on('open', (id) => {
         document.getElementById('myPeerId').value = id;
+        if (!currentConnection) {
+            updateConnectionStatus("Waiting for connection...");
+        }
 
         // Check for auto-connect invite link
         const urlParams = new URLSearchParams(window.location.search);
@@ -532,13 +537,44 @@ function initPeer() {
             conn.close(); // Only allow one connection at a time
             return;
         }
-        setupConnectionStatus(conn);
+        setupConnectionStatus(conn, conn.peer, 1);
     });
 
     peer.on('error', (err) => {
         console.error("PeerJS error:", err);
-        appendSystemMessage("Error: " + err.type);
-        updateConnectionStatus("Connection Error");
+        if (err.type === 'peer-unavailable') {
+            appendSystemMessage("Peer unavailable. Ask for a fresh ID and ensure the other device keeps this tab open.");
+            updateConnectionStatus("Peer unavailable");
+        } else if (err.type === 'network' || err.type === 'server-error' || err.type === 'socket-error') {
+            appendSystemMessage("Signaling network issue detected. Reconnecting...");
+            updateConnectionStatus("Reconnecting...");
+            if (peer && peer.disconnected) {
+                try {
+                    peer.reconnect();
+                } catch (e) {
+                    console.error("Peer reconnect failed:", e);
+                }
+            }
+        } else {
+            appendSystemMessage("Error: " + err.type);
+            updateConnectionStatus("Connection Error");
+        }
+    });
+
+    peer.on('disconnected', () => {
+        appendSystemMessage("Connection to signaling server dropped. Attempting reconnect...");
+        updateConnectionStatus("Reconnecting...");
+        try {
+            peer.reconnect();
+        } catch (err) {
+            console.error("Peer reconnect error:", err);
+        }
+    });
+
+    peer.on('close', () => {
+        appendSystemMessage("Peer session closed. Reinitializing...");
+        updateConnectionStatus("Reinitializing...");
+        setTimeout(() => initPeer(), 600);
     });
 
     peer.on('call', (call) => {
@@ -560,18 +596,54 @@ function connectToPeer() {
         alert("Cannot connect to yourself.");
         return;
     }
+    attemptPeerConnect(connectId, 1);
+}
+
+function attemptPeerConnect(connectId, attempt) {
+    if (!peer || peer.destroyed) {
+        initPeer();
+        updateConnectionStatus("Reinitializing peer...");
+        setTimeout(() => attemptPeerConnect(connectId, attempt), 900);
+        return;
+    }
+
+    if (peer.disconnected) {
+        updateConnectionStatus("Reconnecting to server...");
+        try {
+            peer.reconnect();
+        } catch (err) {
+            console.error("Reconnect before connect failed:", err);
+        }
+        setTimeout(() => attemptPeerConnect(connectId, attempt), 900);
+        return;
+    }
+
+    if (!peer.id) {
+        updateConnectionStatus("Preparing secure ID...");
+        setTimeout(() => attemptPeerConnect(connectId, attempt), 700);
+        return;
+    }
+
     if (currentConnection) {
         currentConnection.close();
     }
-    updateConnectionStatus("Connecting...");
+    if (pendingConnection) {
+        try {
+            pendingConnection.close();
+        } catch (_) {}
+    }
+
+    updateConnectionStatus(attempt > 1 ? `Retrying connection (${attempt}/${MAX_CONNECT_RETRIES})...` : "Connecting...");
     let conn = peer.connect(connectId);
-    setupConnectionStatus(conn);
+    pendingConnection = conn;
+    setupConnectionStatus(conn, connectId, attempt);
 }
 
-function setupConnectionStatus(conn) {
-    currentConnection = conn;
+function setupConnectionStatus(conn, connectId, attempt) {
 
     const onConnectionOpen = () => {
+        pendingConnection = null;
+        currentConnection = conn;
         updateConnectionStatus("Connected to peer!");
         appendSystemMessage("Secure connection established.");
         document.getElementById("connectId").value = "";
@@ -585,6 +657,31 @@ function setupConnectionStatus(conn) {
         onConnectionOpen();
     }
 
+    conn.on('error', (err) => {
+        console.error("Connection error:", err);
+
+        if (pendingConnection === conn) {
+            pendingConnection = null;
+        }
+        if (currentConnection === conn) {
+            currentConnection = null;
+        }
+
+        if (err.type === 'peer-unavailable') {
+            if (attempt < MAX_CONNECT_RETRIES) {
+                appendSystemMessage(`Peer unavailable. Retrying ${attempt + 1}/${MAX_CONNECT_RETRIES}...`);
+                setTimeout(() => attemptPeerConnect(connectId, attempt + 1), 1200);
+                return;
+            }
+            appendSystemMessage("Peer unavailable after retries. Ask for a fresh ID and keep both tabs open.");
+            updateConnectionStatus("Peer unavailable");
+            return;
+        }
+
+        appendSystemMessage("Connection failed: " + (err.type || "unknown"));
+        updateConnectionStatus("Connection failed");
+    });
+
     conn.on('data', (data) => {
         if (typeof data === 'string') {
             appendMessage(data, 'peer');
@@ -596,11 +693,21 @@ function setupConnectionStatus(conn) {
     });
 
     conn.on('close', () => {
+        if (pendingConnection === conn) {
+            pendingConnection = null;
+            if (!currentConnection) {
+                updateConnectionStatus("Connection closed.");
+            }
+            return;
+        }
+
         updateConnectionStatus("Connection closed.");
         appendSystemMessage("Peer disconnected.");
         document.getElementById("callControls").classList.add('hidden');
         endCall();
-        currentConnection = null;
+        if (currentConnection === conn) {
+            currentConnection = null;
+        }
     });
 }
 
