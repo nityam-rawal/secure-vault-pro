@@ -835,13 +835,32 @@ function updateConnectionStatus(msg) {
 }
 
 // Initialize Peer automatically when the script loads
-function generateInviteLink() {
+async function generateInviteLink() {
     let myId = document.getElementById('myPeerId').value;
     if (!myId) return;
     let secureLink = window.location.origin + window.location.pathname + "?connect=" + myId;
     let inviteText = `\u{1F510} Private chat. Zero signup. Full privacy.\n\n\u{1F449} Join instantly:\n${secureLink}\n\n\u{1F4AC} Chat | \u{1F399}\u{FE0F} Voice | \u{1F3A5} Video\n\u{26A1} Fast. Secure. Direct.`;
-    navigator.clipboard.writeText(inviteText);
-    alert("Invite message copied with secure link.");
+    try {
+        if (navigator.share) {
+            await navigator.share({
+                title: "Secure Vault Private Chat",
+                text: inviteText
+            });
+            appendSystemMessage("Invite shared.");
+            return;
+        }
+    } catch (err) {
+        // If user cancels native share, continue to clipboard fallback.
+        console.warn("Share API skipped:", err);
+    }
+
+    try {
+        await navigator.clipboard.writeText(inviteText);
+        alert("Invite message copied with secure link.");
+    } catch (err) {
+        console.warn("Clipboard copy failed:", err);
+        window.prompt("Copy this invite message:", inviteText);
+    }
 }
 
 async function sendMediaFile() {
