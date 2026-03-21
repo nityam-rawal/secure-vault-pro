@@ -157,29 +157,23 @@
             </div>
 
         </div>
-
         <!-- ================= SECURE CHAT ================= -->
 
         <div id="chat" class="tab-content hidden">
-            <div class="card">
-                <h2>💬 P2P Secure Chat</h2>
-                <p class="subtitle" style="margin-bottom: 15px;">100% Client-Side. No servers. Direct connection.</p>
+            <div id="offlineBanner" class="hidden status-msg" style="color: #ef4444; margin-bottom: 10px;">
+                ⚠️ You are offline. Vault & tools still work locally.
+            </div>
 
-                <div id="offlineBanner" class="hidden status-msg" style="color: #ef4444; margin-bottom: 10px;">
-                    ⚠️ You are offline. Vault & tools still work locally.
+            <div class="card p2p-card">
+                <div class="comm-section-head">
+                    <div>
+                        <h2>💬 Direct P2P Chat</h2>
+                        <p class="subtitle">One-to-one secure messaging with instant audio, video, and media transfer.</p>
+                    </div>
+                    <span class="comm-badge">1:1 P2P</span>
                 </div>
 
-                <div class="comm-stack">
-                    <div class="p2p-shell">
-                        <div class="comm-section-head">
-                            <div>
-                                <h3>Direct P2P Chat</h3>
-                                <p>One-to-one secure messaging with instant audio, video, and media transfer.</p>
-                            </div>
-                            <span class="comm-badge">1:1 P2P</span>
-                        </div>
-
-                        <div class="chat-connection">
+                <div class="chat-connection">
                     <div class="my-id-box">
                         <span>Your ID:</span>
                         <input type="text" id="myPeerId" readonly placeholder="Generating...">
@@ -212,9 +206,7 @@
                         <button class="call-btn" onclick="startCall(true)" title="Video Call">📹 Video</button>
                     </div>
 
-                    <div id="chatMessages" class="chat-messages">
-                        <!-- Messages appear here -->
-                    </div>
+                    <div id="chatMessages" class="chat-messages"></div>
                     <div class="chat-controls-advanced hidden" id="advancedCallControls">
                         <label class="control-item">
                             <input type="checkbox" id="recordCall"> 📹 Record Call
@@ -227,25 +219,21 @@
                         </label>
                     </div>
                     <div class="chat-input-area">
-                        <button onclick="document.getElementById('mediaInput').click()" title="Send Media"
-                            class="icon-btn">📎</button>
-                        <input type="file" id="mediaInput" class="hidden" onchange="sendMediaFile()"
-                            accept="image/*,video/*,audio/*,application/*">
-                        <input type="text" id="chatInput" placeholder="Type a secure message..."
-                            onkeypress="handleChatKeyPress(event)">
+                        <button onclick="document.getElementById('mediaInput').click()" title="Send Media" class="icon-btn">📎</button>
+                        <input type="file" id="mediaInput" class="hidden" onchange="sendMediaFile()" accept="image/*,video/*,audio/*,application/*">
+                        <input type="text" id="chatInput" placeholder="Type a secure message..." onkeypress="handleChatKeyPress(event)">
                         <button onclick="sendChatMessage()" title="Send">📤</button>
                         <button onclick="toggleAdvancedControls()" title="Advanced Options" class="icon-btn">⚙️</button>
                     </div>
                 </div>
+            </div>
 
-
-                    </div>
-
-                    <div class="meet-shell">
+            <div class="card meet-card">
+                <div class="meet-shell">
                     <div class="meet-section-head">
                         <div>
-                            <h3>Secure Meet</h3>
-                            <p>Google Meet style rooms powered by the same browser-to-browser P2P stack.</p>
+                            <h2>🎥 Secure Meet</h2>
+                            <p class="subtitle">Room-based secure meetings built on the same browser-to-browser P2P stack.</p>
                         </div>
                         <span class="meet-badge">Room Mesh</span>
                     </div>
@@ -257,10 +245,7 @@
                                 <input type="text" id="meetName" placeholder="Enter your meeting name">
 
                                 <label for="meetPasscode">Passcode</label>
-                                <input type="password" id="meetPasscode" placeholder="Set passcode to create or enter passcode to join" autocomplete="off">
-
-                                <label for="meetInviteLink">Invite link</label>
-                                <input type="text" id="meetInviteLink" placeholder="Paste invite link to join" autocomplete="off">
+                                <input type="password" id="meetPasscode" placeholder="Set passcode to create or enter passcode after opening invite link" autocomplete="off">
 
                                 <div class="meet-lobby-actions">
                                     <button onclick="createMeetRoom()">Create Room</button>
@@ -274,8 +259,8 @@
                             <div class="meet-lobby-card meet-lobby-tips">
                                 <h4>Security design</h4>
                                 <ul>
-                                    <li>Host only enters name and passcode. Secure room identifiers are generated internally.</li>
-                                    <li>Joiners use the invite link plus passcode, so hidden routing IDs never need manual entry.</li>
+                                    <li>Visible fields only show name and passcode.</li>
+                                    <li>System generates room identifiers internally and invite links carry the hidden routing data.</li>
                                     <li>Host validates a nonce-based proof before any participant enters the room mesh.</li>
                                 </ul>
                             </div>
