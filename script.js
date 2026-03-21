@@ -736,6 +736,10 @@ function setupConnectionStatus(conn, connectId, attempt) {
             appendMessage(data.content, 'peer');
         } else if (data.type === 'media') {
             renderIncomingMedia(data);
+        } else if (data.type === 'call-info') {
+            appendSystemMessage(`${data.callType || "Call"} incoming...`);
+        } else if (data.type === 'call-error') {
+            appendSystemMessage(`Call failed on peer device: ${data.reason || "unknown reason"}`);
         }
     });
 
@@ -756,6 +760,26 @@ function setupConnectionStatus(conn, connectId, attempt) {
             currentConnection = null;
         }
     });
+}
+
+function getMediaErrorHelp(err) {
+    const name = err?.name || "";
+    const msg = err?.message || "";
+
+    if (name === "NotAllowedError" || name === "PermissionDeniedError") {
+        return "Permission denied. Allow Microphone/Camera in browser site settings for this page, then retry.";
+    }
+    if (name === "NotFoundError" || name === "DevicesNotFoundError") {
+        return "Requested device not found. Connect/enable mic/camera, or switch to audio-only call.";
+    }
+    if (name === "NotReadableError" || name === "TrackStartError") {
+        return "Device is busy (used by another app/tab). Close other apps using mic/camera and retry.";
+    }
+    if (name === "OverconstrainedError" || name === "ConstraintNotSatisfiedError") {
+        return "This device can't satisfy requested media quality. Retrying with fallback is recommended.";
+    }
+    if (msg) return msg;
+    return "Call media could not be started on this device.";
 }
 
 function sendChatMessage() {
@@ -1022,10 +1046,11 @@ async function startCall(videoEnabled) {
         document.getElementById("callControls").classList.add('hidden');
 
     } catch (err) {
-        if (err && (err.name === "NotFoundError" || err.name === "DevicesNotFoundError")) {
-            alert("Microphone/Camera not found on this device. Connect a mic/camera or allow permissions.");
-        } else {
-            alert(err.message || "Call start failed.");
+        const help = getMediaErrorHelp(err);
+        alert(help);
+        appendSystemMessage(`Call start failed: ${help}`);
+        if (currentConnection && currentConnection.open) {
+            currentConnection.send({ type: 'call-error', reason: help });
         }
         console.error(err);
     }
@@ -1132,11 +1157,13 @@ async function answerCall(call) {
         document.getElementById("callControls").classList.add('hidden');
 
     } catch (err) {
-        if (err && (err.name === "NotFoundError" || err.name === "DevicesNotFoundError")) {
-            alert("Microphone/Camera not found on this device. Connect a mic/camera or allow permissions.");
-        } else {
-            alert(err.message || "Call answer failed.");
+        const help = getMediaErrorHelp(err);
+        alert(help);
+        appendSystemMessage(`Call answer failed: ${help}`);
+        if (currentConnection && currentConnection.open) {
+            currentConnection.send({ type: 'call-error', reason: help });
         }
+        call.close();
     }
 }
 
