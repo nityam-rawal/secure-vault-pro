@@ -507,6 +507,10 @@ let currentCall = null;
 let mediaRecorder = null;
 let recordedChunks = [];
 let pendingMeetInvite = null;
+const MEET_LIMITS = {
+    meshMaxParticipants: 12,
+    sfuScaleTarget: 1000
+};
 
 function createMeetState() {
     return {
@@ -559,13 +563,17 @@ function initPeer() {
 
         const meetRoomId = urlParams.get('meet');
         const meetHostId = urlParams.get('host');
-        if (meetRoomId || meetHostId) {
+        if (meetRoomId && meetHostId) {
             pendingMeetInvite = {
                 roomId: (meetRoomId || '').trim().toUpperCase(),
                 hostId: (meetHostId || '').trim()
             };
             showTab('chat');
             updateMeetStatus("Invite loaded. Enter passcode and tap Join Room.");
+        } else if (meetRoomId || meetHostId) {
+            pendingMeetInvite = null;
+            showTab('chat');
+            updateMeetStatus("Invite link is incomplete. Ask host to resend.", false);
         }
     });
 
@@ -738,6 +746,17 @@ function generateSecureSalt() {
 }
 
 async function sha256Hex(text) {
+    if (!crypto?.subtle?.digest) {
+        // Fallback for non-secure contexts (e.g. opening HTML directly via file://)
+        // This keeps room flow working locally, but cryptographic assurance is reduced.
+        let hash = 2166136261;
+        for (let i = 0; i < text.length; i += 1) {
+            hash ^= text.charCodeAt(i);
+            hash = Math.imul(hash, 16777619);
+        }
+        return (hash >>> 0).toString(16).padStart(8, '0').repeat(8);
+    }
+
     const enc = new TextEncoder();
     const buffer = await crypto.subtle.digest("SHA-256", enc.encode(text));
     return Array.from(new Uint8Array(buffer), (value) => value.toString(16).padStart(2, '0')).join('');
@@ -1010,6 +1029,14 @@ function handleMeetControlMessage(conn, data) {
                     conn.close();
                     return;
                 }
+                if (meetState.participants.size >= MEET_LIMITS.meshMaxParticipants) {
+                    conn.send({
+                        type: 'auth-failed',
+                        reason: `Room full for browser mesh mode (${MEET_LIMITS.meshMaxParticipants} users). 1000-user meetings need SFU backend.`
+                    });
+                    conn.close();
+                    return;
+                }
 
                 const participant = {
                     id: conn.peer,
@@ -1172,7 +1199,12 @@ async function createMeetRoom() {
         meetState.roomId = generateSecureMeetingCode();
         meetState.hostId = peer.id;
         meetState.myName = getMeetDisplayName();
-        meetState.passcode = generateSecurePasscode();
+        const typedPasscode = getMeetField('meetPasscode').value.trim();
+        if (typedPasscode && typedPasscode.length < 8) {
+            alert("Passcode should be at least 8 characters.");
+            return;
+        }
+        meetState.passcode = typedPasscode || generateSecurePasscode();
         meetState.salt = generateSecureSalt();
         meetState.authSecret = await buildMeetAuthSecret(meetState.roomId, meetState.passcode, meetState.salt);
         populateMeetFields({
@@ -1187,6 +1219,8 @@ async function createMeetRoom() {
         appendMeetMessage(`Room created by ${meetState.myName}.`, 'system');
         appendMeetMessage("Room created successfully. You can share invite now.", 'system');
         appendMeetMessage("Invite link ready. Share passcode separately over a trusted channel.", 'system');
+        appendMeetMessage(`Current mode: browser mesh (${MEET_LIMITS.meshMaxParticipants} participants max).`, 'system');
+        appendMeetMessage(`For ${MEET_LIMITS.sfuScaleTarget}+ participants, connect an SFU backend (LiveKit/Janus/mediasoup).`, 'system');
         updateMeetPresenceText("Waiting for authenticated participants");
         updateMeetStatus("Room created. Click Copy Invite and share passcode.", true);
 
