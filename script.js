@@ -838,9 +838,10 @@ function updateConnectionStatus(msg) {
 function generateInviteLink() {
     let myId = document.getElementById('myPeerId').value;
     if (!myId) return;
-    let url = window.location.origin + window.location.pathname + "?connect=" + myId;
-    navigator.clipboard.writeText(url);
-    alert("Invite link copied! Send it to your friend to securely connect.");
+    let secureLink = window.location.origin + window.location.pathname + "?connect=" + myId;
+    let inviteText = `\u{1F510} Private chat. Zero signup. Full privacy.\n\n\u{1F449} Join instantly:\n${secureLink}\n\n\u{1F4AC} Chat | \u{1F399}\u{FE0F} Voice | \u{1F3A5} Video\n\u{26A1} Fast. Secure. Direct.`;
+    navigator.clipboard.writeText(inviteText);
+    alert("Invite message copied with secure link.");
 }
 
 async function sendMediaFile() {
@@ -1009,7 +1010,71 @@ async function getCallMediaWithFallback(preferVideo) {
         }
     }
 
+    const virtualFallback = createVirtualFallbackStream(preferVideo);
+    if (virtualFallback) {
+        return { stream: virtualFallback, mode: "virtual-fallback" };
+    }
+
     throw lastError || new Error("Unable to access microphone/camera on this device.");
+}
+
+function createVirtualFallbackStream(preferVideo) {
+    try {
+        const stream = new MediaStream();
+        let addedTrack = false;
+
+        // Silent audio track keeps call flow alive even when mic is denied/unavailable.
+        try {
+            const AudioCtx = window.AudioContext || window.webkitAudioContext;
+            if (AudioCtx) {
+                const audioCtx = new AudioCtx();
+                const oscillator = audioCtx.createOscillator();
+                const gainNode = audioCtx.createGain();
+                const destination = audioCtx.createMediaStreamDestination();
+                gainNode.gain.value = 0.0001;
+                oscillator.connect(gainNode).connect(destination);
+                oscillator.start();
+                const audioTrack = destination.stream.getAudioTracks()[0];
+                if (audioTrack) {
+                    stream.addTrack(audioTrack);
+                    addedTrack = true;
+                }
+            }
+        } catch (audioErr) {
+            console.warn("Silent audio fallback unavailable:", audioErr);
+        }
+
+        // Optional blank video track for video-call compatibility when camera is blocked/missing.
+        if (preferVideo) {
+            try {
+                const canvas = document.createElement('canvas');
+                canvas.width = 640;
+                canvas.height = 360;
+                const ctx = canvas.getContext('2d');
+                if (ctx) {
+                    ctx.fillStyle = '#0f172a';
+                    ctx.fillRect(0, 0, canvas.width, canvas.height);
+                    ctx.fillStyle = '#93c5fd';
+                    ctx.font = '20px sans-serif';
+                    ctx.fillText('Camera unavailable', 180, 190);
+                }
+                if (canvas.captureStream) {
+                    const videoTrack = canvas.captureStream(5).getVideoTracks()[0];
+                    if (videoTrack) {
+                        stream.addTrack(videoTrack);
+                        addedTrack = true;
+                    }
+                }
+            } catch (videoErr) {
+                console.warn("Blank video fallback unavailable:", videoErr);
+            }
+        }
+
+        return addedTrack ? stream : null;
+    } catch (err) {
+        console.warn("Virtual fallback stream failed:", err);
+        return null;
+    }
 }
 
 async function startCall(videoEnabled) {
