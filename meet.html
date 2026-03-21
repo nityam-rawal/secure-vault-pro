@@ -1,0 +1,1413 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>🔐 Secure Meet — Secure Vault Pro</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Exo+2:wght@300;400;600;700;900&display=swap" rel="stylesheet" />
+<script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+<style>
+  :root {
+    --bg: #030a0e;
+    --bg2: #071217;
+    --bg3: #0a1a22;
+    --panel: #0d2030;
+    --border: #0e3a52;
+    --accent: #00d4ff;
+    --accent2: #00ff88;
+    --accent3: #ff4c60;
+    --accent4: #ffd700;
+    --text: #c8e8f5;
+    --text-dim: #5a8fa8;
+    --glow: rgba(0,212,255,0.15);
+    --glow2: rgba(0,255,136,0.1);
+    --font-mono: 'Share Tech Mono', monospace;
+    --font-main: 'Exo 2', sans-serif;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: var(--font-main);
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* ─── GRID BG ─────────────────────────────── */
+  body::before {
+    content: ''; 
+    position: fixed;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(0,212,255,0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0,212,255,0.03) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  /* ─── HEADER ──────────────────────────────── */
+  header {
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    background: rgba(3,10,14,0.95);
+    backdrop-filter: blur(20px);
+    border-bottom: 1px solid var(--border);
+    padding: 14px 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .logo {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    text-decoration: none;
+  }
+
+  .logo-icon {
+    width: 38px;
+    height: 38px;
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    box-shadow: 0 0 20px var(--glow);
+  }
+
+  .logo-text {
+    font-family: var(--font-mono);
+    font-size: 14px;
+    color: var(--accent);
+    letter-spacing: 1px;
+  }
+
+  .logo-text span { color: var(--accent2); }
+
+  .back-btn {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--text-dim);
+    text-decoration: none;
+    font-size: 13px;
+    font-family: var(--font-mono);
+    padding: 8px 16px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    transition: all 0.2s;
+  }
+  .back-btn:hover { color: var(--accent); border-color: var(--accent); }
+
+  /* ─── LOBBY ──────────────────────────────── */
+  #lobby {
+    position: relative;
+    z-index: 1;
+    min-height: calc(100vh - 67px);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 40px 20px;
+  }
+
+  .lobby-title {
+    font-size: clamp(28px, 5vw, 52px);
+    font-weight: 900;
+    letter-spacing: -1px;
+    text-align: center;
+    margin-bottom: 8px;
+  }
+
+  .lobby-title .word1 { color: var(--text); }
+  .lobby-title .word2 {
+    color: var(--accent);
+    text-shadow: 0 0 30px var(--accent);
+  }
+
+  .lobby-sub {
+    color: var(--text-dim);
+    font-size: 14px;
+    font-family: var(--font-mono);
+    text-align: center;
+    margin-bottom: 50px;
+    letter-spacing: 2px;
+  }
+
+  /* ─── MEET CARDS ─────────────────────────── */
+  .meet-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 380px));
+    gap: 24px;
+    justify-content: center;
+    width: 100%;
+    max-width: 860px;
+    margin-bottom: 40px;
+  }
+
+  .meet-card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 36px 32px;
+    cursor: pointer;
+    position: relative;
+    overflow: hidden;
+    transition: transform 0.3s, box-shadow 0.3s, border-color 0.3s;
+  }
+
+  .meet-card::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    transition: opacity 0.3s;
+    border-radius: 20px;
+  }
+
+  .meet-card.private::before { background: radial-gradient(ellipse at top left, rgba(0,212,255,0.08), transparent 60%); }
+  .meet-card.public::before  { background: radial-gradient(ellipse at top right, rgba(0,255,136,0.08), transparent 60%); }
+
+  .meet-card:hover { transform: translateY(-6px); }
+  .meet-card:hover::before { opacity: 1; }
+
+  .meet-card.private:hover { border-color: var(--accent); box-shadow: 0 20px 60px rgba(0,212,255,0.15); }
+  .meet-card.public:hover  { border-color: var(--accent2); box-shadow: 0 20px 60px rgba(0,255,136,0.15); }
+
+  .card-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 11px;
+    font-family: var(--font-mono);
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    padding: 5px 12px;
+    border-radius: 20px;
+    margin-bottom: 20px;
+  }
+
+  .private .card-badge { background: rgba(0,212,255,0.1); color: var(--accent); border: 1px solid rgba(0,212,255,0.2); }
+  .public .card-badge  { background: rgba(0,255,136,0.1); color: var(--accent2); border: 1px solid rgba(0,255,136,0.2); }
+
+  .card-icon {
+    font-size: 44px;
+    margin-bottom: 16px;
+    display: block;
+  }
+
+  .card-title {
+    font-size: 22px;
+    font-weight: 700;
+    margin-bottom: 10px;
+  }
+
+  .private .card-title { color: var(--accent); }
+  .public .card-title  { color: var(--accent2); }
+
+  .card-desc {
+    color: var(--text-dim);
+    font-size: 13px;
+    line-height: 1.7;
+    margin-bottom: 24px;
+  }
+
+  .card-features {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 28px;
+  }
+
+  .card-features li {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 12px;
+    color: var(--text);
+    font-family: var(--font-mono);
+  }
+
+  .card-features li::before {
+    content: '▸';
+    font-size: 10px;
+  }
+
+  .private .card-features li::before { color: var(--accent); }
+  .public .card-features li::before  { color: var(--accent2); }
+
+  .card-btn {
+    width: 100%;
+    padding: 14px;
+    border: none;
+    border-radius: 12px;
+    font-family: var(--font-main);
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    letter-spacing: 1px;
+    transition: all 0.2s;
+  }
+
+  .private .card-btn {
+    background: linear-gradient(135deg, rgba(0,212,255,0.2), rgba(0,212,255,0.1));
+    border: 1px solid rgba(0,212,255,0.4);
+    color: var(--accent);
+  }
+  .private .card-btn:hover {
+    background: linear-gradient(135deg, rgba(0,212,255,0.35), rgba(0,212,255,0.2));
+    box-shadow: 0 0 20px rgba(0,212,255,0.3);
+  }
+
+  .public .card-btn {
+    background: linear-gradient(135deg, rgba(0,255,136,0.2), rgba(0,255,136,0.1));
+    border: 1px solid rgba(0,255,136,0.4);
+    color: var(--accent2);
+  }
+  .public .card-btn:hover {
+    background: linear-gradient(135deg, rgba(0,255,136,0.35), rgba(0,255,136,0.2));
+    box-shadow: 0 0 20px rgba(0,255,136,0.3);
+  }
+
+  /* ─── MODAL ──────────────────────────────── */
+  .modal-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.85);
+    backdrop-filter: blur(8px);
+    z-index: 200;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+  }
+
+  .modal-overlay.active { display: flex; }
+
+  .modal {
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 36px;
+    width: 100%;
+    max-width: 480px;
+    position: relative;
+    animation: modalIn 0.3s cubic-bezier(0.34,1.56,0.64,1);
+  }
+
+  @keyframes modalIn {
+    from { opacity: 0; transform: scale(0.85) translateY(20px); }
+    to   { opacity: 1; transform: scale(1) translateY(0); }
+  }
+
+  .modal-close {
+    position: absolute;
+    top: 16px; right: 16px;
+    background: none;
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    width: 32px; height: 32px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 16px;
+    display: flex; align-items: center; justify-content: center;
+    transition: all 0.2s;
+  }
+  .modal-close:hover { color: var(--accent3); border-color: var(--accent3); }
+
+  .modal h2 {
+    font-size: 20px;
+    font-weight: 700;
+    margin-bottom: 6px;
+  }
+
+  .modal-sub {
+    color: var(--text-dim);
+    font-size: 12px;
+    font-family: var(--font-mono);
+    margin-bottom: 28px;
+    letter-spacing: 1px;
+  }
+
+  .tabs {
+    display: flex;
+    gap: 0;
+    background: var(--bg2);
+    border-radius: 10px;
+    padding: 4px;
+    margin-bottom: 24px;
+  }
+
+  .tab-btn {
+    flex: 1;
+    padding: 9px;
+    background: none;
+    border: none;
+    color: var(--text-dim);
+    border-radius: 8px;
+    cursor: pointer;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    letter-spacing: 1px;
+    transition: all 0.2s;
+  }
+
+  .tab-btn.active {
+    background: var(--panel);
+    color: var(--accent);
+    box-shadow: 0 0 12px var(--glow);
+  }
+
+  .tab-content { display: none; }
+  .tab-content.active { display: block; }
+
+  .form-group { margin-bottom: 16px; }
+
+  .form-label {
+    display: block;
+    font-size: 11px;
+    font-family: var(--font-mono);
+    letter-spacing: 2px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    margin-bottom: 8px;
+  }
+
+  .form-input {
+    width: 100%;
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px 16px;
+    color: var(--text);
+    font-family: var(--font-mono);
+    font-size: 13px;
+    outline: none;
+    transition: border-color 0.2s, box-shadow 0.2s;
+  }
+
+  .form-input:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(0,212,255,0.1);
+  }
+
+  .form-input::placeholder { color: var(--text-dim); opacity: 0.6; }
+
+  .room-id-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+
+  .room-id-row .form-input { flex: 1; }
+
+  .gen-btn {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    color: var(--accent);
+    padding: 12px 14px;
+    border-radius: 10px;
+    cursor: pointer;
+    font-size: 16px;
+    transition: all 0.2s;
+    white-space: nowrap;
+  }
+  .gen-btn:hover { border-color: var(--accent); box-shadow: 0 0 12px var(--glow); }
+
+  .submit-btn {
+    width: 100%;
+    padding: 14px;
+    border: none;
+    border-radius: 12px;
+    font-family: var(--font-main);
+    font-size: 14px;
+    font-weight: 700;
+    cursor: pointer;
+    letter-spacing: 1px;
+    margin-top: 8px;
+    transition: all 0.2s;
+  }
+
+  .submit-btn.cyan {
+    background: linear-gradient(135deg, #00d4ff, #0088cc);
+    color: #000;
+    box-shadow: 0 4px 20px rgba(0,212,255,0.3);
+  }
+
+  .submit-btn.cyan:hover { box-shadow: 0 8px 30px rgba(0,212,255,0.5); transform: translateY(-1px); }
+
+  .submit-btn.green {
+    background: linear-gradient(135deg, #00ff88, #00cc66);
+    color: #000;
+    box-shadow: 0 4px 20px rgba(0,255,136,0.3);
+  }
+
+  .submit-btn.green:hover { box-shadow: 0 8px 30px rgba(0,255,136,0.5); transform: translateY(-1px); }
+
+  /* ─── MEETING ROOM ──────────────────────── */
+  #meetRoom {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: #020810;
+    z-index: 300;
+    flex-direction: column;
+  }
+
+  #meetRoom.active { display: flex; }
+
+  /* Room Header */
+  .room-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 20px;
+    background: rgba(7,18,23,0.98);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+
+  .room-info {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .room-type-badge {
+    font-size: 10px;
+    font-family: var(--font-mono);
+    letter-spacing: 2px;
+    padding: 4px 10px;
+    border-radius: 20px;
+  }
+
+  .room-type-badge.private { background: rgba(0,212,255,0.1); color: var(--accent); border: 1px solid rgba(0,212,255,0.3); }
+  .room-type-badge.public  { background: rgba(0,255,136,0.1); color: var(--accent2); border: 1px solid rgba(0,255,136,0.3); }
+
+  .room-id-display {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--text-dim);
+  }
+
+  .room-id-display span { color: var(--accent4); }
+
+  .timer-display {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    color: var(--text-dim);
+  }
+
+  .participants-count {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--accent2);
+  }
+
+  /* Video Grid */
+  .video-area {
+    flex: 1;
+    display: flex;
+    overflow: hidden;
+    position: relative;
+  }
+
+  .video-grid {
+    flex: 1;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 4px;
+    padding: 8px;
+    align-content: start;
+    overflow-y: auto;
+  }
+
+  .video-tile {
+    position: relative;
+    background: #0a1520;
+    border-radius: 12px;
+    overflow: hidden;
+    aspect-ratio: 16/9;
+    border: 1px solid #0e2535;
+  }
+
+  .video-tile video {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+
+  .video-tile.local-tile { border: 2px solid rgba(0,212,255,0.4); }
+
+  .tile-label {
+    position: absolute;
+    bottom: 10px;
+    left: 10px;
+    background: rgba(0,0,0,0.7);
+    backdrop-filter: blur(6px);
+    padding: 4px 10px;
+    border-radius: 6px;
+    font-size: 11px;
+    font-family: var(--font-mono);
+    color: var(--text);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .tile-status {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    display: flex;
+    gap: 6px;
+  }
+
+  .status-dot {
+    width: 28px;
+    height: 28px;
+    border-radius: 8px;
+    background: rgba(0,0,0,0.7);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+  }
+
+  .muted-overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: #080f18;
+    font-size: 40px;
+  }
+
+  .muted-overlay .avatar-ring {
+    width: 70px;
+    height: 70px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 28px;
+    margin-bottom: 10px;
+    box-shadow: 0 0 20px var(--glow);
+  }
+
+  .muted-overlay .name {
+    font-size: 13px;
+    color: var(--text);
+    font-family: var(--font-mono);
+  }
+
+  /* Side Panel (Chat) */
+  .side-panel {
+    width: 0;
+    overflow: hidden;
+    transition: width 0.3s ease;
+    background: var(--bg3);
+    border-left: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+  }
+
+  .side-panel.open { width: 300px; }
+
+  .panel-header {
+    padding: 16px;
+    border-bottom: 1px solid var(--border);
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--accent);
+    font-family: var(--font-mono);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .panel-close {
+    background: none;
+    border: none;
+    color: var(--text-dim);
+    cursor: pointer;
+    font-size: 16px;
+  }
+  .panel-close:hover { color: var(--accent3); }
+
+  .chat-messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .chat-msg {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 10px 12px;
+    font-size: 12px;
+  }
+
+  .chat-msg .msg-from {
+    font-family: var(--font-mono);
+    color: var(--accent);
+    font-size: 10px;
+    margin-bottom: 4px;
+  }
+
+  .chat-msg.mine .msg-from { color: var(--accent2); }
+
+  .chat-msg .msg-text { color: var(--text); line-height: 1.5; }
+
+  .chat-msg .msg-time {
+    color: var(--text-dim);
+    font-size: 9px;
+    font-family: var(--font-mono);
+    margin-top: 4px;
+  }
+
+  .chat-input-row {
+    padding: 12px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    gap: 8px;
+  }
+
+  .chat-input-row input {
+    flex: 1;
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 9px 12px;
+    color: var(--text);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    outline: none;
+  }
+
+  .chat-input-row input:focus { border-color: var(--accent); }
+
+  .chat-send-btn {
+    background: rgba(0,212,255,0.15);
+    border: 1px solid rgba(0,212,255,0.3);
+    color: var(--accent);
+    padding: 9px 14px;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.2s;
+    font-size: 14px;
+  }
+  .chat-send-btn:hover { background: rgba(0,212,255,0.25); }
+
+  /* Controls Bar */
+  .controls-bar {
+    background: rgba(7,18,23,0.98);
+    border-top: 1px solid var(--border);
+    padding: 14px 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-shrink: 0;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+
+  .controls-left,
+  .controls-center,
+  .controls-right {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .ctrl-btn {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 10px 14px;
+    border-radius: 12px;
+    cursor: pointer;
+    transition: all 0.2s;
+    font-size: 18px;
+    min-width: 52px;
+    position: relative;
+  }
+
+  .ctrl-btn .ctrl-label {
+    font-size: 9px;
+    font-family: var(--font-mono);
+    color: var(--text-dim);
+    letter-spacing: 0.5px;
+  }
+
+  .ctrl-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+  .ctrl-btn:hover .ctrl-label { color: var(--accent); }
+
+  .ctrl-btn.active { background: rgba(0,212,255,0.15); border-color: var(--accent); color: var(--accent); }
+
+  .ctrl-btn.danger { background: rgba(255,76,96,0.1); border-color: rgba(255,76,96,0.4); color: var(--accent3); }
+  .ctrl-btn.danger:hover { background: rgba(255,76,96,0.25); box-shadow: 0 0 16px rgba(255,76,96,0.3); }
+
+  .ctrl-btn.off { background: rgba(255,76,96,0.1); border-color: rgba(255,76,96,0.3); color: var(--accent3) !important; }
+  .ctrl-btn.off .ctrl-label { color: var(--accent3) !important; }
+
+  .leave-btn {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--accent3);
+    border: none;
+    color: #fff;
+    padding: 12px 22px;
+    border-radius: 12px;
+    cursor: pointer;
+    font-family: var(--font-main);
+    font-weight: 700;
+    font-size: 13px;
+    letter-spacing: 1px;
+    transition: all 0.2s;
+    box-shadow: 0 4px 16px rgba(255,76,96,0.3);
+  }
+  .leave-btn:hover { background: #ff2040; box-shadow: 0 8px 24px rgba(255,76,96,0.5); transform: translateY(-1px); }
+
+  /* Participants Panel */
+  .participants-panel {
+    display: none;
+    flex-direction: column;
+    gap: 8px;
+    overflow-y: auto;
+  }
+
+  .participant-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 12px;
+    background: var(--panel);
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    font-size: 12px;
+    font-family: var(--font-mono);
+  }
+
+  .participant-avatar {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    flex-shrink: 0;
+  }
+
+  /* Invite Popup */
+  .invite-popup {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.8);
+    z-index: 500;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+  }
+
+  .invite-popup.active { display: flex; }
+
+  .invite-box {
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 28px;
+    max-width: 440px;
+    width: 100%;
+    animation: modalIn 0.3s cubic-bezier(0.34,1.56,0.64,1);
+  }
+
+  .invite-box h3 {
+    font-size: 16px;
+    color: var(--accent);
+    font-family: var(--font-mono);
+    margin-bottom: 16px;
+  }
+
+  .invite-link-box {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px 14px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--accent4);
+    word-break: break-all;
+    margin-bottom: 12px;
+  }
+
+  .invite-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+
+  .invite-copy-btn {
+    flex: 1;
+    padding: 10px;
+    background: rgba(0,212,255,0.15);
+    border: 1px solid rgba(0,212,255,0.3);
+    color: var(--accent);
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 12px;
+    font-family: var(--font-mono);
+    transition: all 0.2s;
+  }
+  .invite-copy-btn:hover { background: rgba(0,212,255,0.25); }
+
+  .invite-close-btn {
+    padding: 10px 16px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 12px;
+    font-family: var(--font-mono);
+    transition: all 0.2s;
+  }
+  .invite-close-btn:hover { color: var(--accent3); border-color: var(--accent3); }
+
+  /* Toast */
+  .toast {
+    position: fixed;
+    bottom: 90px;
+    left: 50%;
+    transform: translateX(-50%) translateY(20px);
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px 20px;
+    font-size: 13px;
+    font-family: var(--font-mono);
+    color: var(--text);
+    z-index: 999;
+    opacity: 0;
+    transition: all 0.3s;
+    white-space: nowrap;
+  }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+  /* Screen Share Badge */
+  .screenshare-badge {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    background: rgba(255,215,0,0.2);
+    border: 1px solid rgba(255,215,0,0.4);
+    color: var(--accent4);
+    font-family: var(--font-mono);
+    font-size: 9px;
+    padding: 3px 8px;
+    border-radius: 4px;
+    letter-spacing: 1px;
+  }
+
+  /* Waiting Room */
+  .waiting-room {
+    position: absolute;
+    inset: 0;
+    background: rgba(2,8,16,0.95);
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    z-index: 10;
+  }
+
+  .waiting-room.active { display: flex; }
+
+  .waiting-spinner {
+    width: 50px;
+    height: 50px;
+    border: 3px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+  }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .waiting-text {
+    font-family: var(--font-mono);
+    color: var(--text-dim);
+    font-size: 13px;
+    text-align: center;
+  }
+
+  .waiting-text strong { color: var(--accent); display: block; font-size: 16px; margin-bottom: 6px; }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-track { background: var(--bg); }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--accent); }
+
+  /* Responsive */
+  @media (max-width: 600px) {
+    .meet-cards { grid-template-columns: 1fr; }
+    .controls-center { flex-wrap: wrap; justify-content: center; }
+    .side-panel.open { width: 100%; position: absolute; right: 0; top: 0; bottom: 0; z-index: 10; }
+  }
+
+  /* Pulse animation for speaking */
+  @keyframes pulse-ring {
+    0% { box-shadow: 0 0 0 0 rgba(0,212,255,0.4); }
+    70% { box-shadow: 0 0 0 8px rgba(0,212,255,0); }
+    100% { box-shadow: 0 0 0 0 rgba(0,212,255,0); }
+  }
+
+  .speaking { animation: pulse-ring 1.5s ease-out infinite; border-color: var(--accent) !important; }
+
+  /* Reconnect overlay */
+  .reconnect-overlay {
+    position: absolute;
+    inset: 0;
+    background: rgba(255,76,96,0.08);
+    border: 2px solid rgba(255,76,96,0.4);
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--accent3);
+    backdrop-filter: blur(4px);
+  }
+</style>
+</head>
+<body>
+
+<!-- ─── HEADER ──────────────────────────────────────── -->
+<header>
+  <a href="index.html" class="logo">
+    <div class="logo-icon">🔐</div>
+    <span class="logo-text">SECURE<span>VAULT</span>.PRO</span>
+  </a>
+  <a href="index.html" class="back-btn">← Back to Vault</a>
+</header>
+
+<!-- ─── LOBBY ──────────────────────────────────────── -->
+<section id="lobby">
+  <h1 class="lobby-title">
+    <span class="word1">SECURE </span>
+    <span class="word2">MEET</span>
+  </h1>
+  <p class="lobby-sub">🛡️ END-TO-END ENCRYPTED · ZERO SERVER LOGS · WEBRTC P2P</p>
+
+  <div class="meet-cards">
+
+    <!-- Private Meet -->
+    <div class="meet-card private" onclick="openModal('private')">
+      <div class="card-badge">🔒 Private</div>
+      <span class="card-icon">🔐</span>
+      <div class="card-title">Private Meet</div>
+      <p class="card-desc">Password-protected meeting room. Only people with the correct Room ID and password can join. Perfect for confidential conversations.</p>
+      <ul class="card-features">
+        <li>Password-protected room</li>
+        <li>Encrypted room ID</li>
+        <li>No unauthorized access</li>
+        <li>End-to-end encrypted chat</li>
+        <li>Auto-lock after host joins</li>
+      </ul>
+      <button class="card-btn">Start Private Meet</button>
+    </div>
+
+    <!-- Public Meet -->
+    <div class="meet-card public" onclick="openModal('public')">
+      <div class="card-badge">🌐 Public</div>
+      <span class="card-icon">🌍</span>
+      <div class="card-title">Public Meet</div>
+      <p class="card-desc">Open meeting room anyone with the link can join. Great for team meetings, open discussions, and community calls.</p>
+      <ul class="card-features">
+        <li>Shareable join link</li>
+        <li>Up to 10 participants</li>
+        <li>Screen sharing</li>
+        <li>In-room group chat</li>
+        <li>HD video &amp; audio</li>
+      </ul>
+      <button class="card-btn">Start Public Meet</button>
+    </div>
+
+  </div>
+
+  <!-- Info strip -->
+  <div style="font-family:var(--font-mono);font-size:11px;color:var(--text-dim);text-align:center;letter-spacing:1px;">
+    ⚡ Powered by WebRTC &nbsp;|&nbsp; 🔒 No data stored on any server &nbsp;|&nbsp; 🌐 P2P Direct Connection
+  </div>
+</section>
+
+<!-- ─── PRIVATE MODAL ──────────────────────────────── -->
+<div class="modal-overlay" id="privateModal">
+  <div class="modal">
+    <button class="modal-close" onclick="closeModal('privateModal')">✕</button>
+    <h2 style="color:var(--accent)">🔐 Private Meet</h2>
+    <p class="modal-sub">PASSWORD PROTECTED · INVITE ONLY</p>
+
+    <div class="tabs">
+      <button class="tab-btn active" onclick="switchTab('private','create')">Create Room</button>
+      <button class="tab-btn" onclick="switchTab('private','join')">Join Room</button>
+    </div>
+
+    <!-- Create -->
+    <div class="tab-content active" id="private-create">
+      <div class="form-group">
+        <label class="form-label">Your Name</label>
+        <input type="text" class="form-input" id="pcName" placeholder="Enter your display name" />
+      </div>
+      <div class="form-group">
+        <label class="form-label">Room ID</label>
+        <div class="room-id-row">
+          <input type="text" class="form-input" id="pcRoomId" placeholder="Auto-generated or custom" />
+          <button class="gen-btn" onclick="genRoomId('pcRoomId')">⟳ Gen</button>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Room Password</label>
+        <input type="password" class="form-input" id="pcPassword" placeholder="Set a password for your room" />
+      </div>
+      <button class="submit-btn cyan" onclick="createMeet('private')">🔐 Create Private Room</button>
+    </div>
+
+    <!-- Join -->
+    <div class="tab-content" id="private-join">
+      <div class="form-group">
+        <label class="form-label">Your Name</label>
+        <input type="text" class="form-input" id="pjName" placeholder="Enter your display name" />
+      </div>
+      <div class="form-group">
+        <label class="form-label">Room ID</label>
+        <input type="text" class="form-input" id="pjRoomId" placeholder="Enter the room ID" />
+      </div>
+      <div class="form-group">
+        <label class="form-label">Room Password</label>
+        <input type="password" class="form-input" id="pjPassword" placeholder="Enter the room password" />
+      </div>
+      <button class="submit-btn cyan" onclick="joinMeet('private')">🔑 Join Private Room</button>
+    </div>
+  </div>
+</div>
+
+<!-- ─── PUBLIC MODAL ──────────────────────────────── -->
+<div class="modal-overlay" id="publicModal">
+  <div class="modal">
+    <button class="modal-close" onclick="closeModal('publicModal')">✕</button>
+    <h2 style="color:var(--accent2)">🌍 Public Meet</h2>
+    <p class="modal-sub">OPEN ROOM · SHAREABLE LINK</p>
+
+    <div class="tabs">
+      <button class="tab-btn active" onclick="switchTab('public','create')">Create Room</button>
+      <button class="tab-btn" onclick="switchTab('public','join')">Join Room</button>
+    </div>
+
+    <!-- Create -->
+    <div class="tab-content active" id="public-create">
+      <div class="form-group">
+        <label class="form-label">Your Name</label>
+        <input type="text" class="form-input" id="ubcName" placeholder="Enter your display name" />
+      </div>
+      <div class="form-group">
+        <label class="form-label">Room ID</label>
+        <div class="room-id-row">
+          <input type="text" class="form-input" id="ubcRoomId" placeholder="Auto-generated or custom" />
+          <button class="gen-btn" onclick="genRoomId('ubcRoomId')">⟳ Gen</button>
+        </div>
+      </div>
+      <button class="submit-btn green" onclick="createMeet('public')">🌍 Create Public Room</button>
+    </div>
+
+    <!-- Join -->
+    <div class="tab-content" id="public-join">
+      <div class="form-group">
+        <label class="form-label">Your Name</label>
+        <input type="text" class="form-input" id="ubjName" placeholder="Enter your display name" />
+      </div>
+      <div class="form-group">
+        <label class="form-label">Room ID</label>
+        <input type="text" class="form-input" id="ubjRoomId" placeholder="Enter the room ID to join" />
+      </div>
+      <button class="submit-btn green" onclick="joinMeet('public')">🚀 Join Public Room</button>
+    </div>
+  </div>
+</div>
+
+<!-- ─── MEETING ROOM ──────────────────────────────── -->
+<div id="meetRoom">
+
+  <!-- Room Header -->
+  <div class="room-header">
+    <div class="room-info">
+      <span class="room-type-badge" id="roomTypeBadge">PRIVATE</span>
+      <span class="room-id-display">Room: <span id="displayRoomId">—</span></span>
+    </div>
+    <div style="display:flex;gap:16px;align-items:center;">
+      <span class="participants-count" id="participantsCount">👤 1 participant</span>
+      <span class="timer-display" id="timerDisplay">00:00</span>
+    </div>
+  </div>
+
+  <!-- Video Area -->
+  <div class="video-area">
+    <div class="video-grid" id="videoGrid">
+      <!-- Local tile inserted by JS -->
+    </div>
+
+    <!-- Chat Side Panel -->
+    <div class="side-panel" id="sidePanel">
+      <div class="panel-header">
+        💬 In-Meet Chat
+        <button class="panel-close" onclick="toggleChat()">✕</button>
+      </div>
+      <div class="chat-messages" id="chatMessages"></div>
+      <div class="chat-input-row">
+        <input type="text" id="chatInput" placeholder="Send message..." onkeypress="if(event.key==='Enter') sendChat()" />
+        <button class="chat-send-btn" onclick="sendChat()">➤</button>
+      </div>
+    </div>
+
+    <!-- Waiting Room -->
+    <div class="waiting-room" id="waitingRoom">
+      <div class="waiting-spinner"></div>
+      <div class="waiting-text">
+        <strong>Waiting for others...</strong>
+        Share your Room ID to invite participants
+      </div>
+    </div>
+  </div>
+
+  <!-- Controls Bar -->
+  <div class="controls-bar">
+    <div class="controls-left">
+      <button class="ctrl-btn" id="micBtn" onclick="toggleMic()" title="Mute/Unmute">
+        🎤 <span class="ctrl-label">Mic</span>
+      </button>
+      <button class="ctrl-btn" id="camBtn" onclick="toggleCam()" title="Camera On/Off">
+        📹 <span class="ctrl-label">Camera</span>
+      </button>
+      <button class="ctrl-btn" id="screenBtn" onclick="toggleScreen()" title="Share Screen">
+        🖥️ <span class="ctrl-label">Screen</span>
+      </button>
+    </div>
+
+    <div class="controls-center">
+      <button class="ctrl-btn" id="chatBtn" onclick="toggleChat()" title="Open Chat">
+        💬 <span class="ctrl-label">Chat</span>
+      </button>
+      <button class="ctrl-btn" onclick="showInvite()" title="Invite People">
+        🔗 <span class="ctrl-label">Invite</span>
+      </button>
+      <button class="ctrl-btn" id="handBtn" onclick="raiseHand()" title="Raise Hand">
+        ✋ <span class="ctrl-label">Hand</span>
+      </button>
+      <button class="ctrl-btn" onclick="toggleRecording()" id="recBtn" title="Record Meeting">
+        ⏺️ <span class="ctrl-label">Record</span>
+      </button>
+    </div>
+
+    <div class="controls-right">
+      <button class="leave-btn" onclick="leaveMeet()">📵 Leave</button>
+    </div>
+  </div>
+</div>
+
+<!-- ─── INVITE POPUP ──────────────────────────────── -->
+<div class="invite-popup" id="invitePopup">
+  <div class="invite-box">
+    <h3>🔗 Invite Participants</h3>
+    <p style="font-size:12px;color:var(--text-dim);margin-bottom:12px;font-family:var(--font-mono);">Share this link or Room ID:</p>
+    <div class="invite-link-box" id="inviteLinkBox"></div>
+    <div style="font-size:11px;color:var(--text-dim);font-family:var(--font-mono);margin-bottom:14px;">
+      Room ID: <span id="inviteRoomIdText" style="color:var(--accent4)"></span>
+      <span id="invitePasswordText"></span>
+    </div>
+    <div class="invite-actions">
+      <button class="invite-copy-btn" onclick="copyInvite()">📋 Copy Link</button>
+      <button class="invite-copy-btn" onclick="copyRoomId()" style="background:rgba(0,255,136,0.1);border-color:rgba(0,255,136,0.3);color:var(--accent2)">🆔 Copy ID</button>
+      <button class="invite-close-btn" onclick="closeInvite()">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- ─── TOAST ──────────────────────────────────────── -->
+<div class="toast" id="toast"></div>
+
+<script>
+// ─── STATE ─────────────────────────────────────────
+let peer = null;
+let localStream = null;
+let screenStream = null;
+let connections = [];
+let dataChannels = [];
+let myName = '';
+let roomId = '';
+let roomPassword = '';
+let isHost = false;
+let meetType = '';
+let isMicOn = true;
+let isCamOn = true;
+let isSharingScreen = false;
+let isHandRaised = false;
+let isRecording = false;
+let mediaRecorder = null;
+let recordedChunks = [];
+let timerInterval = null;
+let timerSeconds = 0;
+let chatOpen = false;
+let waitingVisible = true;
+let participants = {};   // peerId -> {name, stream}
+
+// ─── UTILITIES ─────────────────────────────────────
+function genRoomId(inputId) {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  let id = '';
+  for (let i = 0; i < 8; i++) {
+    if (i === 4) id += '-';
+    id += chars[Math.floor(Math.random() * chars.length)];
+  }
+  document.getElementById(inputId).value = id;
+}
+
+function showToast(msg, duration = 2800) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), duration);
+}
+
+// ─── MODAL CONTROLS ────────────────────────────────
+function openModal(type) {
+  // Pre-generate room id
+  if (type === 'private') {
+    genRoomId('pcRoomId');
+    document.getElementById('privateModal').classList.add('active');
+  } else {
+    genRoomId('ubcRoomId');
+    document.getElementById('publicModal').classList.add('active');
+  }
+}
+
+function closeModal(id) {
+  document.getElementById(id).classList.remove('active');
+}
+
+function switchTab(type, tab) {
+  const prefix = type === 'private' ? 'private' : 'public';
+  document.querySelectorAll(`#${type === 'private' ? 'privateModal' : 'publicModal'} .tab-btn`).forEach((b, i) => {
+    b.classList.toggle('active', (i === 0 && tab === 'create') || (i === 1 && tab === 'join'));
+  });
+  document.getElementById(`${prefix}-create`).classList.toggle('active', tab === 'create');
+  document.getElementById(`${prefix}-join`).classList.toggle('active', tab === 'join');
+}
+
+// ─── CREATE MEET ───────────────────────────────────
+async function createMeet(type) {
+  meetType = type;
+  if (type === 'private') {
+    myName = document.getElementById('pcName').value.trim() || 'Host';
+    roomId  = document.getElementById('pcRoomId').value.trim();
+    roomPassword = document.getElementById('pcPassword').value.trim();
+    if (!roomId) return showToast('⚠️ Please enter a Room ID');
+    if (!roomPassword) return showToast('⚠️ Please set a password');
+    closeModal('privateModal');
+  } else {
+    myName = document.getElementById('ubcName').value.trim() || 'Host';
+    roomId  = document.getElementById('ubcRoomId').value.trim();
+    if (!roomId) return showToast('⚠️ Please enter a Room ID');
+    closeModal('publicModal');
+  }
+  isHost = true;
+  await initMeet();
+}
+
+// ─── JOIN MEET ──────────────────────────────────────
+async function joinMeet(type) {
+  meetType = type;
+  if (type === 'private') {
+    myName = document.getElementById('pjName').value.trim() || 'Guest';
+    roomId  = document.getElementById('pjRoomId').value.trim();
+    roomPassword = document.getElementById('pjPassword').value.trim();
+    if (!roomId) return showToast('⚠️ Enter Room ID');
+    if (!roomPassword) return showToast('⚠️ Enter password');
+    closeModal('privateModal');
+  } else {
+    myName = document.getElementById('ubjName').value.trim() || 'Guest';
+    roomId  = document.getElementById('ubjRoomId').value.trim();
+    if (!roomId) return showToast('⚠️ Enter Room ID');
+    closeModal('publicModal');
+  }
+  isHost = false;
+  await initMeet();
+}
+
+// ─── INIT MEET ──────────────────────────────────────
+async function initMeet() {
+  try {
+    localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+  } catch(e) {
+    try {
+      localStream = await navigator.mediaDevices.getUserMedia({ video: false, audio: true });
+      showToast('📷 Camera not available, audio only');
+    } catch(e2) {
+      localStream = new MediaStream();
+      showToast('⚠️ No media devices, continuing without A/V');
+    }
+  }
+
+  // Show room
+  document.getElementById('lobby').style.display = 'none';
+  const room = document.getElementById('meetRoom');
+  room.classList.add('active');
+
+  // Set badge
+  const badge = document.getElementById('roomTypeBadge');
+  badge.textContent = meetType === 'private' ? '🔒 PRIVATE' : '🌐 PUBLIC';
+  badge.className = `room-type-badge ${meetType}`;
+  document.getElementById('displayRoomId').textContent = roomId;
+
+  // Add local video
+  addLocalTile();
+
+  // Start timer
+  timerSeconds = 0;
+  timerInterval = setInterval(() => {
+    timerSeconds++;
+    const m = String(Math.floor(timerSeconds/60)).padStart(2,'0');
+    const s = String(timerSeconds%60).padStart(2,'0');
+    document.getElementById('timerDisplay').textContent = `${m}:${s}`;
+  }, 1000);
+
+  // Init PeerJS
+  const peerId = 'svp-' + roomId + '-' + Math.random().toString(36).substr(2,6);
+  peer = new Peer(peerId, {
+    host: '0.peerjs.com',
+    port: 443,
+    secure: true,
+    path: '/',
