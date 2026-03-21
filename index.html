@@ -281,6 +281,55 @@
                         <button onclick="toggleAdvancedControls()" title="Advanced Options" class="icon-btn">⚙️</button>
                     </div>
                 </div>
+
+                <div class="meeting-section">
+                    <h3>Secure Meeting Room (No Login)</h3>
+                    <p class="subtitle" style="margin-bottom: 12px;">
+                        Google Meet style flow: create room, share invite link, join in browser only.
+                    </p>
+
+                    <div class="meeting-setup">
+                        <input type="text" id="meetingDisplayName" placeholder="Your display name">
+                        <input type="text" id="meetingRoomId" placeholder="Room code (or auto-generate)">
+                        <div class="meeting-host-options">
+                            <label><input type="checkbox" id="meetingAllowRecording"> Host allows recording</label>
+                            <label><input type="checkbox" id="meetingAllowAnalysis"> Host allows local analysis</label>
+                        </div>
+                        <div class="meeting-actions">
+                            <button onclick="createMeetingRoom()">Create Room</button>
+                            <button onclick="joinMeetingRoom()">Join Room</button>
+                            <button onclick="copyMeetingInviteLink()">Copy Invite Link</button>
+                            <button onclick="leaveMeetingRoom()" class="danger">Leave Room</button>
+                        </div>
+                        <div id="meetingStatus" class="status-msg">No active meeting room.</div>
+                    </div>
+
+                    <div class="meeting-toolbar">
+                        <button onclick="startMeetingMedia(true)">Start Camera</button>
+                        <button onclick="startMeetingMedia(false)">Audio Only</button>
+                        <button onclick="stopMeetingMedia()">Stop Media</button>
+                        <button id="meetingRecordBtn" onclick="toggleMeetingRecording()" disabled>Start Recording</button>
+                        <button id="meetingAnalyzeBtn" onclick="runMeetingAnalysis()" disabled>Analyze Meeting</button>
+                    </div>
+
+                    <div class="meeting-meta">
+                        <div id="meetingHostPolicy" class="meeting-policy">Host policy will appear after joining.</div>
+                        <div id="meetingParticipants" class="meeting-participants">Participants: none</div>
+                    </div>
+
+                    <div id="meetingVideoGrid" class="meeting-video-grid"></div>
+
+                    <div class="meeting-chat-panel">
+                        <div id="meetingMessages" class="meeting-messages"></div>
+                        <div class="meeting-input-row">
+                            <input type="text" id="meetingChatInput" placeholder="Message everyone in room..."
+                                onkeypress="handleMeetingKeyPress(event)">
+                            <button onclick="sendMeetingChat()">Send</button>
+                        </div>
+                    </div>
+
+                    <div id="meetingAnalysisOutput" class="meeting-analysis hidden"></div>
+                </div>
             </div>
         </div>
 

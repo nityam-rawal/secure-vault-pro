@@ -502,6 +502,24 @@ function animateWheel(score, findings) {
 
 let peer = null;
 let currentConnection = null;
+let meetingStartTime = null;
+
+const meetingState = {
+    isHost: false,
+    roomId: null,
+    hostId: null,
+    localName: "",
+    participants: new Map(),
+    meetingConnections: new Map(),
+    mediaCalls: new Map(),
+    localStream: null,
+    isRecording: false,
+    recorder: null,
+    recordedChunks: [],
+    options: { allowRecording: false, allowAnalysis: false },
+    transcriptChunks: [],
+    chatHistory: []
+};
 
 function initPeer() {
     // Initialize PeerJS to generate our unique ID
@@ -517,10 +535,19 @@ function initPeer() {
     peer.on('open', (id) => {
         document.getElementById('myPeerId').value = id;
 
-        // Check for auto-connect invite link
         const urlParams = new URLSearchParams(window.location.search);
+        const meetingRoom = urlParams.get('meeting');
+        const meetingHost = urlParams.get('host');
         const connectToId = urlParams.get('connect');
-        if (connectToId) {
+
+        if (meetingRoom && meetingHost) {
+            document.getElementById("meetingRoomId").value = meetingRoom;
+            if (!document.getElementById("meetingDisplayName").value.trim()) {
+                document.getElementById("meetingDisplayName").value = "Guest-" + id.slice(0, 5);
+            }
+            showTab('chat');
+            setTimeout(() => joinMeetingRoom(meetingHost), 600);
+        } else if (connectToId) {
             document.getElementById('connectId').value = connectToId;
             showTab('chat');
             setTimeout(() => connectToPeer(), 500);
@@ -528,8 +555,13 @@ function initPeer() {
     });
 
     peer.on('connection', (conn) => {
+        if (conn.metadata?.channel === 'meeting') {
+            setupMeetingDataConnection(conn);
+            return;
+        }
+
         if (currentConnection) {
-            conn.close(); // Only allow one connection at a time
+            conn.close();
             return;
         }
         setupConnectionStatus(conn);
@@ -542,6 +574,11 @@ function initPeer() {
     });
 
     peer.on('call', (call) => {
+        if (call.metadata?.channel === 'meeting') {
+            setupMeetingIncomingCall(call);
+            return;
+        }
+
         if (currentCall) {
             call.close();
             return;
@@ -764,6 +801,608 @@ function renderIncomingMedia(data) {
     overlay.addEventListener('touchstart', startViewing);
     window.addEventListener('mouseup', stopViewing);
     window.addEventListener('touchend', stopViewing);
+}
+
+/* ================= SECURE MEETING ROOMS (NO LOGIN) ================= */
+
+function sanitizeRoomId(raw) {
+    return (raw || "").toUpperCase().replace(/[^A-Z0-9-]/g, "").slice(0, 18);
+}
+
+function generateRoomCode() {
+    return Math.random().toString(36).slice(2, 10).toUpperCase();
+}
+
+function getMeetingName() {
+    const inputName = document.getElementById("meetingDisplayName").value.trim();
+    if (inputName) return inputName.slice(0, 32);
+    const id = document.getElementById("myPeerId").value || "guest";
+    return "User-" + id.slice(0, 5);
+}
+
+function updateMeetingStatus(message, connected = false) {
+    const el = document.getElementById("meetingStatus");
+    el.innerText = message;
+    if (connected) el.classList.add("connected");
+    else el.classList.remove("connected");
+}
+
+function appendMeetingMessage(text, type = "user") {
+    const box = document.getElementById("meetingMessages");
+    const div = document.createElement("div");
+    div.className = "meeting-msg" + (type === "system" ? " system" : "");
+    div.innerText = text;
+    box.appendChild(div);
+    box.scrollTop = box.scrollHeight;
+}
+
+function appendMeetingSystemMessage(text) {
+    appendMeetingMessage(text, "system");
+}
+
+function renderMeetingParticipants() {
+    const names = [];
+    meetingState.participants.forEach((name) => names.push(name));
+    const el = document.getElementById("meetingParticipants");
+    el.innerText = names.length ? ("Participants: " + names.join(", ")) : "Participants: none";
+}
+
+function updateMeetingPolicyUI() {
+    const policy = document.getElementById("meetingHostPolicy");
+    const recordText = meetingState.options.allowRecording ? "recording allowed" : "recording blocked";
+    const analysisText = meetingState.options.allowAnalysis ? "analysis allowed" : "analysis blocked";
+    policy.innerText = `Host policy: ${recordText}, ${analysisText}.`;
+    setMeetingControlAvailability();
+}
+
+function setMeetingControlAvailability() {
+    const recordBtn = document.getElementById("meetingRecordBtn");
+    const analyzeBtn = document.getElementById("meetingAnalyzeBtn");
+
+    const canRecord = meetingState.isHost && meetingState.options.allowRecording;
+    const canAnalyze = meetingState.isHost && meetingState.options.allowAnalysis;
+
+    recordBtn.disabled = !canRecord;
+    analyzeBtn.disabled = !canAnalyze;
+}
+
+function meetingBroadcast(payload) {
+    meetingState.meetingConnections.forEach((conn) => {
+        if (conn.open) conn.send(payload);
+    });
+}
+
+function broadcastParticipantSnapshot() {
+    if (!meetingState.isHost) return;
+    const participants = [];
+    meetingState.participants.forEach((name, id) => {
+        participants.push({ id, name });
+    });
+    meetingBroadcast({ type: "meeting-participants", participants });
+}
+
+function setupMeetingDataConnection(conn) {
+    conn.on("open", () => {
+        if (!meetingState.roomId) {
+            conn.close();
+            return;
+        }
+        if (meetingState.isHost) {
+            meetingState.meetingConnections.set(conn.peer, conn);
+            updateMeetingStatus(`Meeting live: ${meetingState.roomId}`, true);
+        } else if (conn.peer === meetingState.hostId) {
+            meetingState.meetingConnections.set(conn.peer, conn);
+            conn.send({
+                type: "meeting-join",
+                roomId: meetingState.roomId,
+                name: meetingState.localName
+            });
+            updateMeetingStatus(`Joining room ${meetingState.roomId}...`, false);
+        }
+    });
+
+    conn.on("data", (payload) => handleMeetingSignal(conn, payload));
+
+    conn.on("close", () => {
+        if (meetingState.isHost) {
+            const leftName = meetingState.participants.get(conn.peer) || ("User-" + conn.peer.slice(0, 5));
+            meetingState.meetingConnections.delete(conn.peer);
+            meetingState.participants.delete(conn.peer);
+            renderMeetingParticipants();
+            broadcastParticipantSnapshot();
+            appendMeetingSystemMessage(`${leftName} left the room.`);
+            removeMeetingVideo(conn.peer);
+        } else if (conn.peer === meetingState.hostId) {
+            appendMeetingSystemMessage("Host closed the room.");
+            leaveMeetingRoom(false);
+        }
+    });
+}
+
+function handleMeetingSignal(conn, payload) {
+    if (!payload || typeof payload !== "object") return;
+
+    if (payload.type === "meeting-join" && meetingState.isHost) {
+        if (payload.roomId !== meetingState.roomId) {
+            conn.close();
+            return;
+        }
+        const guestName = (payload.name || ("Guest-" + conn.peer.slice(0, 5))).slice(0, 32);
+        meetingState.participants.set(conn.peer, guestName);
+        conn.send({
+            type: "meeting-welcome",
+            roomId: meetingState.roomId,
+            hostId: meetingState.hostId,
+            hostOptions: meetingState.options,
+            participants: Array.from(meetingState.participants.entries()).map(([id, name]) => ({ id, name }))
+        });
+        broadcastParticipantSnapshot();
+        renderMeetingParticipants();
+        appendMeetingSystemMessage(`${guestName} joined the room.`);
+        if (meetingState.localStream) {
+            placeMeetingCall(conn.peer);
+        }
+        return;
+    }
+
+    if (payload.type === "meeting-welcome" && !meetingState.isHost) {
+        if (payload.roomId !== meetingState.roomId) return;
+        meetingState.options = {
+            allowRecording: !!payload.hostOptions?.allowRecording,
+            allowAnalysis: !!payload.hostOptions?.allowAnalysis
+        };
+        meetingState.hostId = payload.hostId;
+        meetingState.participants.clear();
+        (payload.participants || []).forEach((p) => {
+            if (p?.id) meetingState.participants.set(p.id, p.name || ("User-" + p.id.slice(0, 5)));
+        });
+        meetingState.participants.set(document.getElementById("myPeerId").value, meetingState.localName);
+        renderMeetingParticipants();
+        updateMeetingPolicyUI();
+        updateMeetingStatus(`Joined room ${meetingState.roomId}`, true);
+        appendMeetingSystemMessage("Connected to meeting host.");
+        connectMediaToParticipants();
+        return;
+    }
+
+    if (payload.type === "meeting-participants") {
+        const myId = document.getElementById("myPeerId").value;
+        const next = new Map();
+        (payload.participants || []).forEach((p) => {
+            if (p?.id) next.set(p.id, p.name || ("User-" + p.id.slice(0, 5)));
+        });
+        if (!next.has(myId)) next.set(myId, meetingState.localName || getMeetingName());
+        meetingState.participants = next;
+        renderMeetingParticipants();
+        connectMediaToParticipants();
+        return;
+    }
+
+    if (payload.type === "meeting-chat") {
+        const sender = payload.fromName || "Participant";
+        const text = payload.text || "";
+        if (!text) return;
+
+        meetingState.chatHistory.push({ sender, text, ts: Date.now() });
+        appendMeetingMessage(`${sender}: ${text}`);
+
+        if (meetingState.isHost && payload.relay !== true) {
+            meetingBroadcast({
+                type: "meeting-chat",
+                fromName: sender,
+                text: text,
+                relay: true
+            });
+        }
+        return;
+    }
+
+    if (payload.type === "meeting-room-closed") {
+        appendMeetingSystemMessage("Meeting ended by host.");
+        leaveMeetingRoom(false);
+        return;
+    }
+
+    if (payload.type === "meeting-policy") {
+        meetingState.options = {
+            allowRecording: !!payload.allowRecording,
+            allowAnalysis: !!payload.allowAnalysis
+        };
+        updateMeetingPolicyUI();
+    }
+}
+
+function createMeetingRoom() {
+    if (!peer || !peer.id) {
+        alert("Peer connection not ready yet.");
+        return;
+    }
+
+    if (meetingState.roomId) {
+        leaveMeetingRoom(false);
+    }
+
+    const roomInput = document.getElementById("meetingRoomId");
+    let roomCode = sanitizeRoomId(roomInput.value);
+    if (!roomCode) roomCode = generateRoomCode();
+    roomInput.value = roomCode;
+
+    meetingState.isHost = true;
+    meetingState.roomId = roomCode;
+    meetingState.hostId = peer.id;
+    meetingState.localName = getMeetingName();
+    meetingState.options = {
+        allowRecording: document.getElementById("meetingAllowRecording").checked,
+        allowAnalysis: document.getElementById("meetingAllowAnalysis").checked
+    };
+    meetingState.participants.clear();
+    meetingState.participants.set(peer.id, meetingState.localName + " (Host)");
+    meetingState.chatHistory = [];
+    meetingState.transcriptChunks = [];
+    meetingStartTime = Date.now();
+    document.getElementById("meetingAnalysisOutput").classList.add("hidden");
+    document.getElementById("meetingAnalysisOutput").innerText = "";
+
+    updateMeetingStatus(`Meeting live: ${roomCode}`, true);
+    updateMeetingPolicyUI();
+    renderMeetingParticipants();
+    appendMeetingSystemMessage(`Room ${roomCode} created. Share invite link.`);
+    copyMeetingInviteLink();
+}
+
+function joinMeetingRoom(forcedHostId = null) {
+    if (!peer || !peer.id) {
+        alert("Peer connection not ready yet.");
+        return;
+    }
+
+    if (meetingState.roomId) {
+        leaveMeetingRoom(false);
+    }
+
+    const roomId = sanitizeRoomId(document.getElementById("meetingRoomId").value);
+    const hostId = forcedHostId || document.getElementById("connectId").value.trim();
+    if (!roomId) {
+        alert("Enter meeting room code.");
+        return;
+    }
+    if (!hostId) {
+        alert("Host ID is required. Paste host ID in chat connect box or open invite link.");
+        return;
+    }
+    if (hostId === peer.id) {
+        alert("Use Create Room to host your own meeting.");
+        return;
+    }
+
+    meetingState.isHost = false;
+    meetingState.roomId = roomId;
+    meetingState.hostId = hostId;
+    meetingState.localName = getMeetingName();
+    meetingState.participants.clear();
+    meetingState.participants.set(peer.id, meetingState.localName);
+    meetingState.chatHistory = [];
+    meetingState.transcriptChunks = [];
+    meetingStartTime = Date.now();
+    document.getElementById("meetingAnalysisOutput").classList.add("hidden");
+    document.getElementById("meetingAnalysisOutput").innerText = "";
+    renderMeetingParticipants();
+
+    const conn = peer.connect(hostId, {
+        metadata: { channel: "meeting", roomId: roomId }
+    });
+    setupMeetingDataConnection(conn);
+}
+
+function copyMeetingInviteLink() {
+    if (!meetingState.roomId || !meetingState.hostId) {
+        alert("Create room first.");
+        return;
+    }
+    const link = `${window.location.origin}${window.location.pathname}?meeting=${encodeURIComponent(meetingState.roomId)}&host=${encodeURIComponent(meetingState.hostId)}`;
+    navigator.clipboard.writeText(link);
+    appendMeetingSystemMessage("Invite link copied.");
+}
+
+function leaveMeetingRoom(notifyRemote = true) {
+    if (!meetingState.roomId) return;
+
+    if (meetingState.isHost && notifyRemote) {
+        meetingBroadcast({ type: "meeting-room-closed" });
+    }
+
+    stopMeetingRecording(true);
+    stopMeetingMedia();
+
+    meetingState.meetingConnections.forEach((conn) => {
+        try { conn.close(); } catch (e) { console.warn(e); }
+    });
+    meetingState.meetingConnections.clear();
+
+    meetingState.mediaCalls.forEach((call) => {
+        try { call.close(); } catch (e) { console.warn(e); }
+    });
+    meetingState.mediaCalls.clear();
+
+    meetingState.participants.clear();
+    renderMeetingParticipants();
+
+    const grid = document.getElementById("meetingVideoGrid");
+    grid.innerHTML = "";
+
+    meetingState.isHost = false;
+    meetingState.roomId = null;
+    meetingState.hostId = null;
+    meetingState.options = { allowRecording: false, allowAnalysis: false };
+    document.getElementById("meetingAnalysisOutput").classList.add("hidden");
+    document.getElementById("meetingAnalysisOutput").innerText = "";
+    updateMeetingPolicyUI();
+    updateMeetingStatus("No active meeting room.", false);
+    appendMeetingSystemMessage("You left the meeting.");
+}
+
+async function startMeetingMedia(withVideo) {
+    if (!meetingState.roomId) {
+        alert("Create or join a meeting room first.");
+        return;
+    }
+
+    try {
+        if (meetingState.localStream) {
+            stopMeetingMedia();
+        }
+        meetingState.localStream = await navigator.mediaDevices.getUserMedia({
+            video: withVideo ? { width: { ideal: 1280 }, height: { ideal: 720 } } : false,
+            audio: { noiseSuppression: true, echoCancellation: true, autoGainControl: true }
+        });
+
+        renderMeetingStream(document.getElementById("myPeerId").value, meetingState.localName + " (You)", meetingState.localStream, true);
+        connectMediaToParticipants(true);
+        appendMeetingSystemMessage(withVideo ? "Camera started." : "Audio-only mode started.");
+    } catch (err) {
+        alert("Unable to start meeting media: " + err.message);
+    }
+}
+
+function stopMeetingMedia() {
+    if (meetingState.localStream) {
+        meetingState.localStream.getTracks().forEach((t) => t.stop());
+        meetingState.localStream = null;
+    }
+    const myId = document.getElementById("myPeerId").value;
+    removeMeetingVideo(myId);
+}
+
+function connectMediaToParticipants(resetExisting = false) {
+    if (!meetingState.localStream || !meetingState.roomId) return;
+
+    if (resetExisting) {
+        meetingState.mediaCalls.forEach((call) => {
+            try { call.close(); } catch (e) { console.warn(e); }
+        });
+        meetingState.mediaCalls.clear();
+    }
+
+    const myId = document.getElementById("myPeerId").value;
+    meetingState.participants.forEach((_name, id) => {
+        if (id === myId) return;
+        if (!meetingState.mediaCalls.has(id)) {
+            placeMeetingCall(id);
+        }
+    });
+}
+
+function placeMeetingCall(targetPeerId) {
+    if (!meetingState.localStream) return;
+    if (meetingState.mediaCalls.has(targetPeerId)) return;
+
+    const call = peer.call(targetPeerId, meetingState.localStream, {
+        metadata: { channel: "meeting", roomId: meetingState.roomId }
+    });
+    attachMeetingCallHandlers(call, targetPeerId);
+}
+
+function setupMeetingIncomingCall(call) {
+    if (!meetingState.roomId || call.metadata?.roomId !== meetingState.roomId) {
+        call.close();
+        return;
+    }
+    if (meetingState.mediaCalls.has(call.peer)) {
+        try { meetingState.mediaCalls.get(call.peer).close(); } catch (e) { console.warn(e); }
+        meetingState.mediaCalls.delete(call.peer);
+    }
+    call.answer(meetingState.localStream || undefined);
+    attachMeetingCallHandlers(call, call.peer);
+}
+
+function attachMeetingCallHandlers(call, peerId) {
+    meetingState.mediaCalls.set(peerId, call);
+    call.on("stream", (stream) => {
+        const label = meetingState.participants.get(peerId) || ("User-" + peerId.slice(0, 5));
+        renderMeetingStream(peerId, label, stream, false);
+    });
+    call.on("close", () => {
+        meetingState.mediaCalls.delete(peerId);
+        removeMeetingVideo(peerId);
+    });
+    call.on("error", () => {
+        meetingState.mediaCalls.delete(peerId);
+        removeMeetingVideo(peerId);
+    });
+}
+
+function renderMeetingStream(peerId, label, stream, isLocal) {
+    const grid = document.getElementById("meetingVideoGrid");
+    let card = document.getElementById("meeting-video-" + peerId);
+    if (!card) {
+        card = document.createElement("div");
+        card.className = "meeting-video-card";
+        card.id = "meeting-video-" + peerId;
+        const video = document.createElement("video");
+        video.autoplay = true;
+        video.playsInline = true;
+        if (isLocal) video.muted = true;
+        const tag = document.createElement("span");
+        tag.className = "meeting-video-label";
+        tag.innerText = label;
+        card.appendChild(video);
+        card.appendChild(tag);
+        grid.appendChild(card);
+    }
+    const videoEl = card.querySelector("video");
+    const labelEl = card.querySelector(".meeting-video-label");
+    labelEl.innerText = label;
+    videoEl.srcObject = stream;
+}
+
+function removeMeetingVideo(peerId) {
+    const card = document.getElementById("meeting-video-" + peerId);
+    if (card) card.remove();
+}
+
+function sendMeetingChat() {
+    if (!meetingState.roomId) {
+        alert("Join a meeting first.");
+        return;
+    }
+
+    const input = document.getElementById("meetingChatInput");
+    const text = input.value.trim();
+    if (!text) return;
+    input.value = "";
+
+    const fromName = meetingState.localName || getMeetingName();
+    meetingState.chatHistory.push({ sender: fromName, text, ts: Date.now() });
+    appendMeetingMessage(`${fromName}: ${text}`);
+
+    if (meetingState.isHost) {
+        meetingBroadcast({ type: "meeting-chat", fromName, text, relay: true });
+    } else {
+        const hostConn = meetingState.meetingConnections.get(meetingState.hostId);
+        if (hostConn?.open) {
+            hostConn.send({ type: "meeting-chat", fromName, text });
+        }
+    }
+}
+
+function handleMeetingKeyPress(event) {
+    if (event.key === "Enter") {
+        sendMeetingChat();
+    }
+}
+
+async function toggleMeetingRecording() {
+    if (!meetingState.isHost || !meetingState.options.allowRecording) {
+        alert("Host recording is disabled for this room.");
+        return;
+    }
+    if (meetingState.isRecording) {
+        stopMeetingRecording(false);
+    } else {
+        await startMeetingRecording();
+    }
+}
+
+async function startMeetingRecording() {
+    try {
+        const stream = await navigator.mediaDevices.getDisplayMedia({
+            video: true,
+            audio: true
+        });
+        meetingState.recordedChunks = [];
+        meetingState.recorder = new MediaRecorder(stream, { mimeType: "video/webm" });
+        meetingState.recorder.ondataavailable = (e) => {
+            if (e.data.size > 0) meetingState.recordedChunks.push(e.data);
+        };
+        meetingState.recorder.onstop = () => {
+            const blob = new Blob(meetingState.recordedChunks, { type: "video/webm" });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = `meeting-recording-${Date.now()}.webm`;
+            a.click();
+            appendMeetingSystemMessage("Recording downloaded locally.");
+            stream.getTracks().forEach((t) => t.stop());
+        };
+        meetingState.recorder.start(1000);
+        meetingState.isRecording = true;
+        document.getElementById("meetingRecordBtn").innerText = "Stop Recording";
+        appendMeetingSystemMessage("Recording started (local only).");
+    } catch (err) {
+        alert("Recording failed: " + err.message);
+    }
+}
+
+function stopMeetingRecording(silent) {
+    if (meetingState.recorder && meetingState.recorder.state !== "inactive") {
+        meetingState.recorder.stop();
+    }
+    meetingState.recorder = null;
+    meetingState.isRecording = false;
+    const btn = document.getElementById("meetingRecordBtn");
+    if (btn) btn.innerText = "Start Recording";
+    if (!silent) appendMeetingSystemMessage("Recording stopped.");
+}
+
+function runMeetingAnalysis() {
+    if (!meetingState.isHost || !meetingState.options.allowAnalysis) {
+        alert("Host analysis is disabled for this room.");
+        return;
+    }
+
+    const durationMin = meetingStartTime ? Math.max(1, Math.round((Date.now() - meetingStartTime) / 60000)) : 0;
+    const participantCount = meetingState.participants.size;
+    const messageCount = meetingState.chatHistory.length;
+    const transcriptText = meetingState.transcriptChunks.join(" ").trim();
+    const chatText = meetingState.chatHistory.map((m) => m.text).join(" ");
+    const mergedText = `${chatText} ${transcriptText}`.trim();
+    const topWords = extractTopKeywords(mergedText, 8);
+    const sentiment = estimateSentiment(mergedText);
+
+    const lines = [
+        "Meeting Analysis (Local, Zero-Storage)",
+        `Duration: ${durationMin} min`,
+        `Participants: ${participantCount}`,
+        `Chat messages: ${messageCount}`,
+        `Sentiment: ${sentiment}`,
+        `Top keywords: ${topWords.length ? topWords.join(", ") : "Not enough text for keywords"}`
+    ];
+
+    const out = document.getElementById("meetingAnalysisOutput");
+    out.classList.remove("hidden");
+    out.innerText = lines.join("\n");
+    appendMeetingSystemMessage("Meeting analysis generated locally.");
+}
+
+function extractTopKeywords(text, limit) {
+    const stopwords = new Set([
+        "the", "is", "a", "an", "to", "and", "or", "for", "of", "on", "in", "it", "that", "this",
+        "with", "be", "are", "we", "you", "i", "they", "he", "she", "was", "were", "have", "has"
+    ]);
+    const counts = {};
+    text.toLowerCase().split(/[^a-z0-9]+/).forEach((w) => {
+        if (!w || w.length < 3 || stopwords.has(w)) return;
+        counts[w] = (counts[w] || 0) + 1;
+    });
+    return Object.entries(counts)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, limit)
+        .map((item) => item[0]);
+}
+
+function estimateSentiment(text) {
+    if (!text) return "Neutral";
+    const positive = ["good", "great", "clear", "progress", "success", "secure", "thanks", "excellent"];
+    const negative = ["issue", "risk", "problem", "delay", "error", "fail", "weak", "blocker"];
+    let score = 0;
+    const tokens = text.toLowerCase().split(/[^a-z0-9]+/);
+    tokens.forEach((w) => {
+        if (positive.includes(w)) score += 1;
+        if (negative.includes(w)) score -= 1;
+    });
+    if (score > 2) return "Positive";
+    if (score < -2) return "Needs Attention";
+    return "Neutral";
 }
 
 /* ================= ENHANCED AUDIO / VIDEO CALLS WITH RECORDING ================= */
