@@ -559,9 +559,9 @@ function initPeer() {
         const meetRoomId = urlParams.get('meet');
         const meetHostId = urlParams.get('host');
         if (meetRoomId || meetHostId) {
+            const inviteLink = `${window.location.origin}${window.location.pathname}?meet=${encodeURIComponent(meetRoomId || "")}&host=${encodeURIComponent(meetHostId || "")}`;
             populateMeetFields({
-                roomId: meetRoomId || "",
-                hostId: meetHostId || ""
+                inviteLink
             });
             showTab('chat');
             updateMeetStatus("Invite loaded. Enter passcode and tap Join Room.");
@@ -718,6 +718,19 @@ function getMeetField(id) {
     return document.getElementById(id);
 }
 
+function parseMeetInviteLink(rawValue) {
+    if (!rawValue) return null;
+    try {
+        const url = new URL(rawValue, window.location.href);
+        const roomId = (url.searchParams.get('meet') || '').trim().toUpperCase();
+        const hostId = (url.searchParams.get('host') || '').trim();
+        if (!roomId || !hostId) return null;
+        return { roomId, hostId };
+    } catch {
+        return null;
+    }
+}
+
 function generateSecureMeetingCode() {
     const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
     const bytes = crypto.getRandomValues(new Uint8Array(12));
@@ -750,14 +763,17 @@ async function buildMeetJoinProof(authSecret, nonce, peerId) {
     return sha256Hex(`${authSecret}|${nonce}|${peerId}|join`);
 }
 
-function populateMeetFields({ roomId = "", passcode = "", hostId = "" } = {}) {
-    getMeetField('meetRoomCode').value = roomId;
+function populateMeetFields({ passcode = "", inviteLink = "" } = {}) {
     getMeetField('meetPasscode').value = passcode;
-    getMeetField('meetHostId').value = hostId;
+    getMeetField('meetInviteLink').value = inviteLink;
 }
 
 function clearMeetSensitiveInputs() {
     getMeetField('meetPasscode').value = '';
+}
+
+function clearMeetInviteInput() {
+    getMeetField('meetInviteLink').value = '';
 }
 
 function updateConnectionStatus(msg) {
@@ -808,9 +824,8 @@ function updateMeetParticipantCount() {
 }
 
 function refreshMeetHeader() {
-    const label = meetState.active ? `${meetState.isHost ? 'Hosting' : 'Joined'}: ${meetState.roomId}` : 'Room: Not started';
+    const label = meetState.active ? (meetState.isHost ? 'Room: Live and protected' : 'Room: Connected securely') : 'Room: Not started';
     document.getElementById('meetRoomLabel').textContent = label;
-    document.getElementById('meetHostLabel').textContent = meetState.active ? `Host: ${meetState.hostId}` : 'Host: Not connected';
     updateMeetParticipantCount();
 }
 
@@ -1177,10 +1192,10 @@ async function createMeetRoom() {
         meetState.passcode = generateSecurePasscode();
         meetState.salt = generateSecureSalt();
         meetState.authSecret = await buildMeetAuthSecret(meetState.roomId, meetState.passcode, meetState.salt);
+        const inviteLink = `${window.location.origin}${window.location.pathname}?meet=${encodeURIComponent(meetState.roomId)}&host=${encodeURIComponent(meetState.hostId)}`;
         populateMeetFields({
-            roomId: meetState.roomId,
             passcode: meetState.passcode,
-            hostId: meetState.hostId
+            inviteLink
         });
         await ensureMeetLocalStream();
         meetState.participants.set(peer.id, getLocalMeetParticipant());
@@ -1190,8 +1205,8 @@ async function createMeetRoom() {
         refreshMeetHeader();
         resetMeetComposer();
         appendMeetMessage(`Room created by ${meetState.myName}.`, 'system');
-        appendMeetMessage(`Meeting ID: ${meetState.roomId}`, 'system');
-        appendMeetMessage("Passcode generated. Share it over a separate trusted channel.", 'system');
+        appendMeetMessage("Secure room generated internally.", 'system');
+        appendMeetMessage("Invite link ready. Share passcode separately over a trusted channel.", 'system');
         updateMeetPresenceText("Waiting for authenticated participants");
         updateMeetStatus("Secure room live. Share invite link and passcode separately.", true);
     } catch (err) {
@@ -1203,23 +1218,20 @@ async function createMeetRoom() {
 }
 
 async function joinMeetRoom() {
-    const roomId = getMeetField('meetRoomCode').value.trim().toUpperCase();
+    const inviteData = parseMeetInviteLink(getMeetField('meetInviteLink').value.trim());
     const passcode = getMeetField('meetPasscode').value.trim();
-    const hostId = getMeetField('meetHostId').value.trim();
+    const roomId = inviteData?.roomId || "";
+    const hostId = inviteData?.hostId || "";
     if (!peer?.id) {
         alert("Peer is still starting. Please wait a moment.");
-        return;
-    }
-    if (!roomId) {
-        alert("Enter a meeting ID to join.");
         return;
     }
     if (!passcode) {
         alert("Enter the meeting passcode.");
         return;
     }
-    if (!hostId) {
-        alert("Enter the host connection ID or open the invite link.");
+    if (!inviteData) {
+        alert("Paste a valid invite link to join.");
         return;
     }
     if (hostId === peer.id) {
@@ -1240,8 +1252,7 @@ async function joinMeetRoom() {
         meetState.myName = getMeetDisplayName();
         meetState.passcode = passcode;
         populateMeetFields({
-            roomId: meetState.roomId,
-            hostId: meetState.hostId
+            inviteLink: getMeetField('meetInviteLink').value.trim()
         });
         await ensureMeetLocalStream();
         meetState.participants.set(peer.id, getLocalMeetParticipant());
@@ -1278,14 +1289,15 @@ async function joinMeetRoom() {
 }
 
 function copyMeetInvite() {
-    const hostId = meetState.active ? meetState.hostId : getMeetField('meetHostId').value.trim() || document.getElementById('myPeerId').value;
-    const roomId = meetState.active ? meetState.roomId : getMeetField('meetRoomCode').value.trim();
+    const hostId = meetState.active ? meetState.hostId : document.getElementById('myPeerId').value;
+    const roomId = meetState.active ? meetState.roomId : "";
     if (!hostId || !roomId) {
         alert("Create a room first so invite data is available.");
         return;
     }
     const url = `${window.location.origin}${window.location.pathname}?meet=${encodeURIComponent(roomId)}&host=${encodeURIComponent(hostId)}`;
     navigator.clipboard.writeText(url);
+    getMeetField('meetInviteLink').value = url;
     updateMeetStatus("Invite link copied. Share passcode separately for better security.", true);
 }
 
@@ -1412,6 +1424,7 @@ function leaveMeetRoom(notifyHost = true) {
 
     meetState = createMeetState();
     clearMeetSensitiveInputs();
+    clearMeetInviteInput();
     updateMeetStatus("Ready to create or join a secure room.");
     refreshMeetHeader();
 }
