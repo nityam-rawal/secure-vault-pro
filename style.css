@@ -860,29 +860,6 @@ button:hover {
     top: 44px;
 }
 
-.meet-host-actions {
-    position: absolute;
-    top: 12px;
-    left: 12px;
-    display: flex;
-    gap: 6px;
-    z-index: 15;
-}
-
-.meet-host-actions button {
-    width: auto;
-    min-width: 58px;
-    padding: 5px 8px;
-    font-size: 11px;
-    border-radius: 999px;
-    background: rgba(15, 23, 42, 0.85);
-    border: 1px solid rgba(148, 163, 184, 0.22);
-}
-
-.meet-host-actions button:hover {
-    background: rgba(30, 41, 59, 0.95);
-}
-
 /* ================= MODAL & WARNINGS ================= */
 
 .modal-overlay {
