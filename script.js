@@ -504,15 +504,60 @@ let peer = null;
 let currentConnection = null;
 let pendingConnection = null;
 const MAX_CONNECT_RETRIES = 3;
+const AUTO_RECONNECT_DELAY_MS = 900;
+
+// STUN-only fails on many mobile/carrier NATs. TURN relay provides reliable cross-device fallback.
+const DEFAULT_ICE_SERVERS = [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' },
+    { urls: 'stun:openrelay.metered.ca:80' },
+    {
+        urls: [
+            'turn:openrelay.metered.ca:80',
+            'turn:openrelay.metered.ca:443',
+            'turn:openrelay.metered.ca:443?transport=tcp'
+        ],
+        username: 'openrelayproject',
+        credential: 'openrelayproject'
+    }
+];
+
+function getCustomIceServers() {
+    try {
+        const raw = localStorage.getItem('svp_turn_config');
+        if (!raw) return null;
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed) && parsed.length) {
+            return parsed;
+        }
+    } catch (err) {
+        console.warn("Invalid svp_turn_config JSON:", err);
+    }
+    return null;
+}
+
+function getIceServers() {
+    return getCustomIceServers() || DEFAULT_ICE_SERVERS;
+}
+
+function warnIfInsecureContext() {
+    const isLocal = /^(localhost|127\\.0\\.0\\.1)$/.test(window.location.hostname);
+    if (!window.isSecureContext && !isLocal) {
+        appendSystemMessage("Insecure HTTP detected. Use HTTPS for reliable audio/video on iOS/Android.");
+    }
+}
 
 function initPeer() {
+    warnIfInsecureContext();
+
     // Initialize PeerJS to generate our unique ID
     peer = new Peer({
+        secure: window.location.protocol === 'https:',
+        debug: 1,
+        pingInterval: 20000,
         config: {
-            'iceServers': [
-                { urls: 'stun:stun.l.google.com:19302' },
-                { urls: 'stun:stun1.l.google.com:19302' }
-            ]
+            iceServers: getIceServers(),
+            iceTransportPolicy: 'all'
         }
     });
 
@@ -521,6 +566,7 @@ function initPeer() {
         if (!currentConnection) {
             updateConnectionStatus("Waiting for connection...");
         }
+        appendSystemMessage("Peer ready. Cross-network relay is enabled.");
 
         // Check for auto-connect invite link
         const urlParams = new URLSearchParams(window.location.search);
@@ -568,13 +614,14 @@ function initPeer() {
             peer.reconnect();
         } catch (err) {
             console.error("Peer reconnect error:", err);
+            setTimeout(() => initPeer(), AUTO_RECONNECT_DELAY_MS);
         }
     });
 
     peer.on('close', () => {
         appendSystemMessage("Peer session closed. Reinitializing...");
         updateConnectionStatus("Reinitializing...");
-        setTimeout(() => initPeer(), 600);
+        setTimeout(() => initPeer(), AUTO_RECONNECT_DELAY_MS);
     });
 
     peer.on('call', (call) => {
@@ -603,7 +650,7 @@ function attemptPeerConnect(connectId, attempt) {
     if (!peer || peer.destroyed) {
         initPeer();
         updateConnectionStatus("Reinitializing peer...");
-        setTimeout(() => attemptPeerConnect(connectId, attempt), 900);
+        setTimeout(() => attemptPeerConnect(connectId, attempt), AUTO_RECONNECT_DELAY_MS);
         return;
     }
 
@@ -614,7 +661,7 @@ function attemptPeerConnect(connectId, attempt) {
         } catch (err) {
             console.error("Reconnect before connect failed:", err);
         }
-        setTimeout(() => attemptPeerConnect(connectId, attempt), 900);
+        setTimeout(() => attemptPeerConnect(connectId, attempt), AUTO_RECONNECT_DELAY_MS);
         return;
     }
 
