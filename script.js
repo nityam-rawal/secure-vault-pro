@@ -589,8 +589,11 @@ function initPeer() {
         }
 
         if (currentConnection) {
-            conn.close(); // Only allow one connection at a time
-            return;
+            if (currentConnection.open) {
+                conn.close(); // Only allow one active direct-chat connection at a time
+                return;
+            }
+            currentConnection = null;
         }
         setupConnectionStatus(conn);
     });
@@ -616,6 +619,11 @@ function initPeer() {
 }
 
 function connectToPeer() {
+    if (!peer || peer.destroyed) {
+        alert("Peer is not ready. Refresh and try again.");
+        return;
+    }
+
     let connectId = document.getElementById("connectId").value.trim();
     if (!connectId) {
         alert("Please enter an ID to connect.");
@@ -629,14 +637,21 @@ function connectToPeer() {
         currentConnection.close();
     }
     updateConnectionStatus("Connecting...");
-    let conn = peer.connect(connectId, { metadata: { channel: 'direct-chat' } });
-    setupConnectionStatus(conn);
+    try {
+        let conn = peer.connect(connectId, { metadata: { channel: 'direct-chat', mode: 'p2p' } });
+        setupConnectionStatus(conn);
+    } catch (err) {
+        updateConnectionStatus("Connection failed.");
+        appendSystemMessage("Connection setup error. Please retry.");
+        console.error("Direct chat connect error:", err);
+    }
 }
 
 function setupConnectionStatus(conn) {
     currentConnection = conn;
 
     const onConnectionOpen = () => {
+        if (currentConnection !== conn) return;
         updateConnectionStatus("Connected to peer!");
         appendSystemMessage("Secure connection established.");
         document.getElementById("connectId").value = "";
@@ -662,7 +677,18 @@ function setupConnectionStatus(conn) {
         }
     });
 
+    conn.on('error', (err) => {
+        if (currentConnection === conn) {
+            updateConnectionStatus("Connection error.");
+            appendSystemMessage("Peer connection error. Try reconnecting.");
+            document.getElementById("callControls").classList.add('hidden');
+            currentConnection = null;
+        }
+        console.error("Direct connection error:", err);
+    });
+
     conn.on('close', () => {
+        if (currentConnection !== conn) return;
         updateConnectionStatus("Connection closed.");
         appendSystemMessage("Peer disconnected.");
         document.getElementById("callControls").classList.add('hidden');
