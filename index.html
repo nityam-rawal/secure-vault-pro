@@ -169,17 +169,7 @@
                     ⚠️ You are offline. Vault & tools still work locally.
                 </div>
 
-                <div class="comm-stack">
-                    <div class="p2p-shell">
-                        <div class="comm-section-head">
-                            <div>
-                                <h3>Direct P2P Chat</h3>
-                                <p>One-to-one secure messaging with instant audio, video, and media transfer.</p>
-                            </div>
-                            <span class="comm-badge">1:1 P2P</span>
-                        </div>
-
-                        <div class="chat-connection">
+                <div class="chat-connection">
                     <div class="my-id-box">
                         <span>Your ID:</span>
                         <input type="text" id="myPeerId" readonly placeholder="Generating...">
@@ -238,10 +228,7 @@
                     </div>
                 </div>
 
-
-                    </div>
-
-                    <div class="meet-shell">
+                <div class="meet-shell">
                     <div class="meet-section-head">
                         <div>
                             <h3>Secure Meet</h3>
@@ -256,11 +243,14 @@
                                 <label for="meetName">Display name</label>
                                 <input type="text" id="meetName" placeholder="Enter your meeting name">
 
-                                <label for="meetPasscode">Passcode</label>
-                                <input type="password" id="meetPasscode" placeholder="Set passcode to create or enter passcode to join" autocomplete="off">
+                                <label for="meetRoomCode">Meeting ID</label>
+                                <input type="text" id="meetRoomCode" placeholder="Secure meeting ID" autocomplete="off">
 
-                                <label for="meetInviteLink">Invite link</label>
-                                <input type="text" id="meetInviteLink" placeholder="Paste invite link to join" autocomplete="off">
+                                <label for="meetPasscode">Passcode</label>
+                                <input type="password" id="meetPasscode" placeholder="Meeting passcode" autocomplete="off">
+
+                                <label for="meetHostId">Host connection ID</label>
+                                <input type="text" id="meetHostId" placeholder="Auto-filled from invite link or host share" autocomplete="off">
 
                                 <div class="meet-lobby-actions">
                                     <button onclick="createMeetRoom()">Create Room</button>
@@ -274,8 +264,8 @@
                             <div class="meet-lobby-card meet-lobby-tips">
                                 <h4>Security design</h4>
                                 <ul>
-                                    <li>Host only enters name and passcode. Secure room identifiers are generated internally.</li>
-                                    <li>Joiners use the invite link plus passcode, so hidden routing IDs never need manual entry.</li>
+                                    <li>Each room gets a random Meeting ID and strong passcode from browser crypto.</li>
+                                    <li>Invite link carries connection coordinates, but passcode stays separate for safer sharing.</li>
                                     <li>Host validates a nonce-based proof before any participant enters the room mesh.</li>
                                 </ul>
                             </div>
@@ -286,6 +276,7 @@
                         <div class="meet-stage-bar">
                             <div class="meet-stage-meta">
                                 <span class="meet-room-pill" id="meetRoomLabel">Room: Not started</span>
+                                <span class="meet-room-pill" id="meetHostLabel">Host: Not connected</span>
                                 <span class="meet-room-pill" id="meetParticipantCount">1 participant</span>
                             </div>
                             <div class="meet-stage-actions">

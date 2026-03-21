@@ -255,69 +255,6 @@ button:hover {
 
 /* ================= SECURE CHAT ================= */
 
-.comm-stack {
-    display: grid;
-    gap: 24px;
-}
-
-.p2p-shell,
-.meet-shell {
-    border-radius: 18px;
-    overflow: hidden;
-}
-
-.p2p-shell {
-    border: 1px solid rgba(14, 165, 233, 0.18);
-    background: linear-gradient(180deg, rgba(8, 47, 73, 0.34), rgba(15, 23, 42, 0.92));
-    box-shadow: 0 18px 40px rgba(2, 6, 23, 0.28);
-}
-
-.comm-section-head,
-.meet-section-head {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: 16px;
-    padding: 18px 20px;
-}
-
-.comm-section-head {
-    border-bottom: 1px solid rgba(14, 165, 233, 0.18);
-    background: linear-gradient(135deg, rgba(14, 165, 233, 0.14), rgba(30, 41, 59, 0.78));
-}
-
-.comm-section-head h3,
-.meet-section-head h3,
-.meet-lobby-card h4 {
-    margin: 0;
-}
-
-.comm-section-head p,
-.meet-section-head p,
-.meet-lobby-card ul {
-    margin: 6px 0 0;
-    color: #94a3b8;
-}
-
-.comm-badge,
-.meet-badge,
-.meet-room-pill {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    padding: 7px 12px;
-    border-radius: 999px;
-    font-size: 12px;
-    font-weight: 700;
-    letter-spacing: 0.04em;
-}
-
-.comm-badge {
-    background: rgba(14, 165, 233, 0.14);
-    border: 1px solid rgba(56, 189, 248, 0.3);
-    color: #bae6fd;
-}
-
 .chat-connection {
     display: flex;
     flex-direction: column;
@@ -582,23 +519,47 @@ button:hover {
 }
 
 .meet-shell {
+    margin-top: 24px;
     border: 1px solid rgba(59, 130, 246, 0.2);
     border-radius: 18px;
     background: linear-gradient(180deg, rgba(15, 23, 42, 0.92), rgba(2, 6, 23, 0.95));
     overflow: hidden;
-    box-shadow: 0 18px 40px rgba(2, 6, 23, 0.32);
 }
 
 .meet-section-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 16px;
+    padding: 18px 20px;
     border-bottom: 1px solid rgba(51, 65, 85, 0.9);
     background: rgba(30, 41, 59, 0.65);
 }
 
+.meet-section-head h3,
+.meet-lobby-card h4 {
+    margin: 0;
+}
+
+.meet-section-head p,
+.meet-lobby-card ul {
+    margin: 6px 0 0;
+    color: #94a3b8;
+}
+
 .meet-badge,
 .meet-room-pill {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 7px 12px;
+    border-radius: 999px;
     background: rgba(37, 99, 235, 0.18);
     border: 1px solid rgba(59, 130, 246, 0.35);
     color: #bfdbfe;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
 }
 
 .meet-lobby,
@@ -1222,11 +1183,6 @@ button:hover {
     }
 
     .meet-section-head {
-        flex-direction: column;
-        align-items: flex-start;
-    }
-
-    .comm-section-head {
         flex-direction: column;
         align-items: flex-start;
     }
