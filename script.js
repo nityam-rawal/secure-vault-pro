@@ -796,14 +796,8 @@ function updateMeetStatus(msg, connected = false) {
 
 function syncMeetInviteButton() {
     const btn = document.getElementById('copyMeetInviteBtn');
-    const sendBtn = document.getElementById('sendMeetInviteBtn');
-    const stageSendBtn = document.getElementById('stageSendMeetInviteBtn');
-    if (!btn || !sendBtn || !stageSendBtn) return;
-
-    const canShare = !!(peer?.id && meetState.active && meetState.roomId && meetState.hostId);
-    btn.disabled = !canShare;
-    sendBtn.disabled = !canShare;
-    stageSendBtn.disabled = !canShare;
+    if (!btn) return;
+    btn.disabled = !document.getElementById('myPeerId').value;
 }
 
 function getMeetDisplayName() {
@@ -835,7 +829,6 @@ function refreshMeetHeader() {
     const label = meetState.active ? (meetState.isHost ? 'Room: Live and protected' : 'Room: Connected securely') : 'Room: Not started';
     document.getElementById('meetRoomLabel').textContent = label;
     updateMeetParticipantCount();
-    syncMeetInviteButton();
 }
 
 function resetMeetComposer() {
@@ -910,17 +903,6 @@ function upsertMeetTile(participant) {
     caption.appendChild(name);
     caption.appendChild(meta);
     tile.appendChild(caption);
-
-    if (meetState.isHost && participant.id !== peer.id) {
-        const actions = document.createElement('div');
-        actions.className = 'meet-host-actions';
-        actions.innerHTML = `
-            <button type="button" onclick="hostMeetAction('mute','${participant.id}')">Mute</button>
-            <button type="button" onclick="hostMeetAction('camera-off','${participant.id}')">Cam Off</button>
-            <button type="button" onclick="hostMeetAction('remove','${participant.id}')">Remove</button>
-        `;
-        tile.appendChild(actions);
-    }
 }
 
 function removeMeetTile(participantId) {
@@ -972,23 +954,6 @@ function isAuthorizedMeetPeer(peerId) {
     if (peerId === peer?.id) return true;
     if (meetState.isHost) return meetState.authenticatedPeers.has(peerId);
     return meetState.participants.has(peerId);
-}
-
-function hostMeetAction(action, participantId) {
-    if (!meetState.active || !meetState.isHost) return;
-    const targetConn = meetState.controlChannels.get(participantId);
-    if (!targetConn || !targetConn.open) {
-        appendMeetMessage("Participant control channel is not available.", 'system');
-        return;
-    }
-    targetConn.send({ type: 'host-action', action, targetId: participantId });
-    if (action === 'remove') {
-        appendMeetMessage("Host removed a participant.", 'system');
-    } else if (action === 'mute') {
-        appendMeetMessage("Host requested participant mute.", 'system');
-    } else if (action === 'camera-off') {
-        appendMeetMessage("Host requested participant camera off.", 'system');
-    }
 }
 
 function setupMeetControlConnection(conn) {
@@ -1140,28 +1105,6 @@ function handleMeetControlMessage(conn, data) {
         updateMeetStatus("Room live. Participants are connected peer-to-peer.", true);
     } else if (data.type === 'chat') {
         appendMeetMessage(`${data.from}: ${data.text}`, 'peer');
-    } else if (data.type === 'host-action') {
-        if (data.targetId !== peer.id) return;
-        if (data.action === 'mute') {
-            meetState.audioEnabled = false;
-            if (meetState.localStream) {
-                meetState.localStream.getAudioTracks().forEach((track) => { track.enabled = false; });
-            }
-            document.getElementById('meetMicBtn').textContent = 'Unmute';
-            syncLocalMeetState();
-            appendMeetMessage("Host muted your mic.", 'system');
-        } else if (data.action === 'camera-off') {
-            meetState.videoEnabled = false;
-            if (meetState.localStream) {
-                meetState.localStream.getVideoTracks().forEach((track) => { track.enabled = false; });
-            }
-            document.getElementById('meetCameraBtn').textContent = 'Camera On';
-            syncLocalMeetState();
-            appendMeetMessage("Host turned off your camera.", 'system');
-        } else if (data.action === 'remove') {
-            alert("Host removed you from the meeting.");
-            leaveMeetRoom(false);
-        }
     } else if (data.type === 'auth-failed') {
         alert(data.reason || "Authentication failed.");
         leaveMeetRoom(false);
@@ -1280,7 +1223,6 @@ async function createMeetRoom() {
         appendMeetMessage(`For ${MEET_LIMITS.sfuScaleTarget}+ participants, connect an SFU backend (LiveKit/Janus/mediasoup).`, 'system');
         updateMeetPresenceText("Waiting for authenticated participants");
         updateMeetStatus("Room created. Click Copy Invite and share passcode.", true);
-        syncMeetInviteButton();
 
         // Don't block room creation on media permission; request it in background.
         ensureMeetLocalStream()
@@ -1378,29 +1320,6 @@ function copyMeetInvite() {
     const url = `${window.location.origin}${window.location.pathname}?meet=${encodeURIComponent(roomId)}&host=${encodeURIComponent(hostId)}`;
     navigator.clipboard.writeText(url);
     updateMeetStatus("Invite link copied. Share passcode separately for better security.", true);
-    return url;
-}
-
-async function sendMeetInvite() {
-    const inviteUrl = copyMeetInvite();
-    if (!inviteUrl) return;
-    const text = `Join my secure meet:\n${inviteUrl}\nPasscode: ${meetState.passcode || '(ask host)'}`;
-
-    if (navigator.share) {
-        try {
-            await navigator.share({
-                title: 'Secure Meet Invite',
-                text
-            });
-            updateMeetStatus("Invite sent successfully.", true);
-            return;
-        } catch {
-            // fall back to copy-only flow below
-        }
-    }
-
-    navigator.clipboard.writeText(text);
-    updateMeetStatus("Invite copied as full message (link + passcode).", true);
 }
 
 function handleMeetIncomingCall(call) {
@@ -1529,7 +1448,6 @@ function leaveMeetRoom(notifyHost = true) {
     pendingMeetInvite = null;
     updateMeetStatus("Ready to create or join a secure room.");
     refreshMeetHeader();
-    syncMeetInviteButton();
 }
 
 // Initialize Peer automatically when the script loads
