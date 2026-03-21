@@ -927,52 +927,106 @@ let currentCall = null;
 let mediaRecorder = null;
 let recordedChunks = [];
 
-function toggleAdvancedControls() {
-    let controls = document.getElementById("advancedCallControls");
-    controls.classList.toggle("hidden");
+
+async function getCallMediaWithFallback(preferVideo) {
+    const attempts = [];
+
+    if (preferVideo) {
+        attempts.push({
+            label: "video+audio",
+            constraints: {
+                video: { width: { ideal: 1280 }, height: { ideal: 720 } },
+                audio: { noiseSuppression: true, echoCancellation: true, autoGainControl: true }
+            }
+        });
+        attempts.push({
+            label: "audio-only",
+            constraints: {
+                video: false,
+                audio: { noiseSuppression: true, echoCancellation: true, autoGainControl: true }
+            }
+        });
+        attempts.push({
+            label: "video-only",
+            constraints: {
+                video: { width: { ideal: 1280 }, height: { ideal: 720 } },
+                audio: false
+            }
+        });
+    } else {
+        attempts.push({
+            label: "audio-only",
+            constraints: {
+                video: false,
+                audio: { noiseSuppression: true, echoCancellation: true, autoGainControl: true }
+            }
+        });
+        attempts.push({
+            label: "basic-audio",
+            constraints: { video: false, audio: true }
+        });
+        attempts.push({
+            label: "video-only-fallback",
+            constraints: {
+                video: { width: { ideal: 1280 }, height: { ideal: 720 } },
+                audio: false
+            }
+        });
+    }
+
+    let lastError = null;
+    for (const attempt of attempts) {
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia(attempt.constraints);
+            return { stream, mode: attempt.label };
+        } catch (err) {
+            lastError = err;
+            console.warn(`Media attempt failed (${attempt.label}):`, err);
+        }
+    }
+
+    throw lastError || new Error("Unable to access microphone/camera on this device.");
 }
 
 async function startCall(videoEnabled) {
     if (!currentConnection || !currentConnection.open) {
-        alert("❌ Connect to a peer first.");
+        alert("Connect to a peer first.");
         return;
     }
 
     try {
-        // Request permissions with enhanced security
-        let constraints = {
-            video: videoEnabled ? { width: { ideal: 1280 }, height: { ideal: 720 } } : false,
-            audio: {
-                noiseSuppression: true,
-                echoCancellation: true,
-                autoGainControl: true
-            }
-        };
-
-        localStream = await navigator.mediaDevices.getUserMedia(constraints);
+        const media = await getCallMediaWithFallback(videoEnabled);
+        localStream = media.stream;
         document.getElementById('localVideo').srcObject = localStream;
         document.getElementById('videoContainer').classList.remove('hidden');
 
-        // Initialize recording if enabled
         if (document.getElementById('recordCall').checked) {
             initializeCallRecording(localStream, videoEnabled);
         }
 
         currentCall = peer.call(currentConnection.peer, localStream);
         setupCallHandlers(currentCall);
-        
-        let callType = videoEnabled ? "🎥 Video Call" : "📞 Audio Call";
-        appendSystemMessage(`✅ ${callType} initiated...`);
-        currentConnection.send({ 
+
+        let callType = videoEnabled ? "Video Call" : "Audio Call";
+        appendSystemMessage(`${callType} initiated.`);
+        if (media.mode !== "video+audio" && media.mode !== "audio-only") {
+            appendSystemMessage(`Fallback media mode: ${media.mode}`);
+        }
+
+        currentConnection.send({
             type: 'call-info',
             callType: callType,
             timestamp: new Date().toISOString()
         });
-        
+
         document.getElementById("callControls").classList.add('hidden');
 
     } catch (err) {
-        alert("❌ " + err.message);
+        if (err && (err.name === "NotFoundError" || err.name === "DevicesNotFoundError")) {
+            alert("Microphone/Camera not found on this device. Connect a mic/camera or allow permissions.");
+        } else {
+            alert(err.message || "Call start failed.");
+        }
         console.error(err);
     }
 }
@@ -1058,17 +1112,9 @@ async function encryptRecording(blob) {
 
 async function answerCall(call) {
     try {
-        let wantVideo = confirm("🔔 Incoming call. Answer with video?");
-
-        let constraints = {
-            video: wantVideo ? { width: { ideal: 1280 }, height: { ideal: 720 } } : false,
-            audio: {
-                noiseSuppression: true,
-                echoCancellation: true
-            }
-        };
-
-        localStream = await navigator.mediaDevices.getUserMedia(constraints);
+        let wantVideo = confirm("Incoming call. Answer with video?");
+        const media = await getCallMediaWithFallback(wantVideo);
+        localStream = media.stream;
         document.getElementById('localVideo').srcObject = localStream;
         document.getElementById('videoContainer').classList.remove('hidden');
 
@@ -1079,11 +1125,18 @@ async function answerCall(call) {
         call.answer(localStream);
         currentCall = call;
         setupCallHandlers(currentCall);
-        appendSystemMessage("✅ Call answered securely.");
+        appendSystemMessage("Call answered securely.");
+        if (media.mode !== "video+audio" && media.mode !== "audio-only") {
+            appendSystemMessage(`Fallback media mode: ${media.mode}`);
+        }
         document.getElementById("callControls").classList.add('hidden');
 
     } catch (err) {
-        alert("❌ " + err.message);
+        if (err && (err.name === "NotFoundError" || err.name === "DevicesNotFoundError")) {
+            alert("Microphone/Camera not found on this device. Connect a mic/camera or allow permissions.");
+        } else {
+            alert(err.message || "Call answer failed.");
+        }
     }
 }
 
