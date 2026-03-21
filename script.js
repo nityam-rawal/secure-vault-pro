@@ -1178,7 +1178,6 @@ async function createMeetRoom() {
         populateMeetFields({
             passcode: meetState.passcode
         });
-        await ensureMeetLocalStream();
         meetState.participants.set(peer.id, getLocalMeetParticipant());
 
         setMeetStageVisible(true);
@@ -1186,15 +1185,26 @@ async function createMeetRoom() {
         refreshMeetHeader();
         resetMeetComposer();
         appendMeetMessage(`Room created by ${meetState.myName}.`, 'system');
-        appendMeetMessage("Secure room generated internally.", 'system');
+        appendMeetMessage("Room created successfully. You can share invite now.", 'system');
         appendMeetMessage("Invite link ready. Share passcode separately over a trusted channel.", 'system');
         updateMeetPresenceText("Waiting for authenticated participants");
-        updateMeetStatus("Secure room live. Share invite link and passcode separately.", true);
+        updateMeetStatus("Room created. Click Copy Invite and share passcode.", true);
+
+        // Don't block room creation on media permission; request it in background.
+        ensureMeetLocalStream()
+            .then(() => {
+                syncLocalMeetState();
+                updateMeetStatus("Room created and media ready. Share invite + passcode.", true);
+            })
+            .catch((err) => {
+                appendMeetMessage("Camera/mic permission denied. Room is still active for text and invite sharing.", 'system');
+                updateMeetStatus(`Room created. Media permission blocked: ${err.message}`, true);
+            });
     } catch (err) {
         meetState = createMeetState();
         setMeetStageVisible(false);
         updateMeetStatus(`Could not start room: ${err.message}`, false);
-        alert("Meet permission error: " + err.message);
+        alert("Meet creation failed: " + err.message);
     }
 }
 
