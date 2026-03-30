@@ -1,6 +1,5 @@
 <!DOCTYPE html>
-<html>
-
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -9,246 +8,285 @@
     <link rel="stylesheet" href="style.css">
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
 </head>
-
 <body>
-
-    <!-- ================= USE POLICY MODAL ================= -->
-    <div id="termsModal" class="modal-overlay hidden">
+    <div id="termsModal" class="modal-overlay hidden" aria-hidden="true">
         <div class="modal-content">
-            <h2>⚠️ Important Security & Usage Notice</h2>
-            <p>Welcome to Secure Vault Pro. Before proceeding, you must agree to the following:</p>
-            <ul style="text-align: left; opacity: 0.9; margin-bottom: 20px;">
-                <li><b>Zero-Storage Reality:</b> This app is 100% client-side. Refreshing the page, clicking back, or
-                    closing the tab immediately and permanently destroys your connection and decrypted data.</li>
-                <li><b>Acceptable Use:</b> You agree to use this tool only for legal, educational, or corporate privacy
-                    purposes. You will not use the Secure Chat to transmit illicit or harmful material.</li>
-                <li><b>Beta Notice:</b> The browser environment cannot block OS-level screenshots. View-Once media is a
-                    deterrent, not a guarantee.</li>
+            <h2>Security & Usage Notice</h2>
+            <p>Secure Vault Pro runs locally in your browser. Before you continue, please confirm the basics below.</p>
+            <ul class="policy-list">
+                <li><b>Zero-storage workflow:</b> Closing or refreshing the tab clears your local session and any decrypted content.</li>
+                <li><b>Legitimate use only:</b> Use the vault, audit, and chat features for personal, legal, or business privacy work only.</li>
+                <li><b>Browser limits still apply:</b> The app can protect transport and local handling, but it cannot block screenshots or a peer recording their own screen.</li>
             </ul>
-            <button class="agree-btn" onclick="acceptTerms()">I Agree & Understand</button>
+            <button class="agree-btn" onclick="acceptTerms()">I Agree & Continue</button>
         </div>
     </div>
 
-    <div class="container">
+    <div id="shareModal" class="modal-overlay hidden" aria-hidden="true">
+        <div class="modal-content share-modal">
+            <button class="modal-close" onclick="closeShareModal()" aria-label="Close share dialog">×</button>
+            <p class="eyebrow">Share Package</p>
+            <h2 id="shareModalTitle">Share Securely</h2>
+            <p id="shareModalDescription" class="modal-copy"></p>
+            <div id="shareLinkWrap" class="share-link-wrap hidden">
+                <label for="shareLinkField">Deep link back to this app</label>
+                <input type="text" id="shareLinkField" readonly>
+            </div>
+            <p id="shareHint" class="share-hint"></p>
+            <div id="shareActionGrid" class="share-action-grid"></div>
+        </div>
+    </div>
 
-        <h1>🔐 Secure Vault Pro</h1>
-        <p class="subtitle">100% Client-Side | Zero Storage | Zero Tracking</p>
+    <div class="app-shell">
+        <header class="hero-card">
+            <div class="hero-copy">
+                <p class="eyebrow">Zero-knowledge workflow</p>
+                <h1>Secure Vault Pro</h1>
+                <p class="hero-subtitle">Encrypt, share, audit, and connect with a faster client-side flow built for real use instead of copy-paste friction.</p>
+            </div>
+            <div class="hero-stats">
+                <div class="hero-stat">
+                    <strong>Share faster</strong>
+                    <span>Native share sheet, deep links, and quick fallback actions</span>
+                </div>
+                <div class="hero-stat">
+                    <strong>Audit smarter</strong>
+                    <span>Privacy-safe exposure review with Google and Proton recovery playbooks</span>
+                </div>
+                <div class="hero-stat">
+                    <strong>Talk securely</strong>
+                    <span>P2P chat, voice, video, and self-destruct message controls</span>
+                </div>
+            </div>
+        </header>
 
         <div class="header-actions">
-            <div class="tabs">
-                <button id="vaultTab" class="active" onclick="showTab('vault')">Vault</button>
-                <button id="riskTab" onclick="showTab('risk')">Risk Analyzer</button>
-                <button id="chatTab" onclick="showTab('chat')">Secure Chat</button>
+            <div class="tabs" role="tablist" aria-label="Secure Vault tabs">
+                <button id="vaultTab" class="active" onclick="showTab('vault')" role="tab" aria-selected="true">Vault</button>
+                <button id="riskTab" onclick="showTab('risk')" role="tab" aria-selected="false">Exposure Audit</button>
+                <button id="chatTab" onclick="showTab('chat')" role="tab" aria-selected="false">Secure Chat</button>
             </div>
         </div>
 
-        <!-- ================= VAULT ================= -->
+        <div id="importBanner" class="status-msg hidden" aria-live="polite"></div>
 
-        <div id="vault" class="tab-content">
-
-            <!-- FILE ENCRYPTION -->
-            <div class="card">
-                <h2>📁 File Encryption</h2>
-
-                <input type="file" id="fileInput">
-                <input type="password" id="filePassword" placeholder="File password" oninput="checkFileStrength()">
-                <input type="password" id="fileConfirmPassword" placeholder="Confirm password">
-
-                <div id="fileStrength" class="strength"></div>
-
-                <div class="btn-row">
-                    <button onclick="encryptFile()">Encrypt File</button>
-                    <button onclick="decryptFile()">Decrypt File</button>
-                    <button onclick="clearFile()">Clear</button>
-                    <button onclick="shareFile()">Share File</button>
-                </div>
-            </div>
-
-            <!-- TEXT ENCRYPTION -->
-            <div class="card">
-                <h2>📝 Military-Grade Text Encryption (AES-256-GCM + ECDH)</h2>
-                <p class="suite-info">Uncrackable End-to-End Encryption | 256-bit Keys | Zero-Knowledge Architecture</p>
-
-                <input type="password" id="textPassword" placeholder="Encryption password" oninput="checkTextStrength()">
-                <input type="password" id="textConfirmPassword" placeholder="Confirm password">
-
-                <div id="textStrength" class="strength"></div>
-
-                <textarea id="textInput" placeholder="Enter text or encrypted data..."></textarea>
-
-                <div class="btn-row">
-                    <button onclick="encryptText()">🔒 Encrypt</button>
-                    <button onclick="decryptText()">🔓 Decrypt</button>
-                    <button onclick="clearText()">🗑️ Clear</button>
-                    <button onclick="shareText()">📋 Copy</button>
-                </div>
-
-                <textarea id="textOutput" placeholder="Encrypted output will appear here..."></textarea>
-
-                <div class="encryption-info">
-                    <small>🔐 Algorithm: ChaCha20-Poly1305 (Secondary), AES-256-GCM (Primary) | Key Derivation: Argon2 + PBKDF2 | HMAC: SHA-512</small>
-                </div>
-            </div>
-
-        </div>
-
-        <!-- ================= RISK ANALYZER ================= -->
-
-        <div id="risk" class="tab-content hidden">
-
-            <div class="card">
-                <h2>🛡️ Advanced Threat & Breach Detection</h2>
-                <p class="subtitle" style="margin-bottom: 15px;">Military-Grade Intelligence Analysis</p>
-
-                <!-- Email Breach Check -->
-                <div class="breach-section">
-                    <h3>📧 Email Breach Check</h3>
-                    <input type="email" id="emailInput" placeholder="Enter email to scan">
-                    <button onclick="checkEmailBreach()">Scan Email</button>
-                    <div id="emailBreachResult" class="breach-result hidden"></div>
-                </div>
-
-                <!-- Phone Breach Check -->
-                <div class="breach-section">
-                    <h3>📱 Phone Leak Detection</h3>
-                    <input type="tel" id="phoneInput" placeholder="Enter phone number (with country code)">
-                    <button onclick="checkPhoneBreach()">Scan Phone</button>
-                    <div id="phoneBreachResult" class="breach-result hidden"></div>
-                </div>
-
-                <!-- Password Breach Check -->
-                <div class="breach-section">
-                    <h3>🔑 Password Breach Check</h3>
-                    <input type="password" id="passwordInput" placeholder="Password" oninput="checkRiskStrength()">
-                    <button onclick="checkPasswordBreach()">Check Password</button>
-                    <div id="passwordBreachResult" class="breach-result hidden"></div>
-                </div>
-
-                <!-- Additional Inputs -->
-                <div class="breach-section">
-                    <h3>👤 Account Info</h3>
-                    <input type="text" id="usernameInput" placeholder="Username/Handle">
-                    <input type="number" id="contactInput" placeholder="Number of saved contacts">
-                    <div id="riskStrength" class="strength"></div>
-                </div>
-
-                <button onclick="runComprehensiveScan()" class="btn-primary">🔍 Run Full Security Audit</button>
-
-                <div id="resultText" class="result-text"></div>
-
-                <div class="wheel">
-                    <svg width="200" height="200">
-                        <circle cx="100" cy="100" r="85" stroke="#1e293b" stroke-width="15" fill="none" />
-                        <circle id="progressCircle" cx="100" cy="100" r="85" stroke="green" stroke-width="15"
-                            fill="none" stroke-dasharray="534" stroke-dashoffset="534" stroke-linecap="round" />
-                    </svg>
-                    <div id="scoreText">0</div>
-                </div>
-
-                <div id="adviceText" class="advice-section"></div>
-
-                <!-- Breach Timeline -->
-                <div id="breachTimeline" class="breach-timeline hidden"></div>
-
-                <p class="privacy-note">
-                    ✅ All analysis runs locally. Anonymous hash prefixes sent for breach checks only.
-                    Your data is never stored or logged.
-                </p>
-
-            </div>
-
-        </div>
-
-        <!-- ================= SECURE CHAT ================= -->
-
-        <div id="chat" class="tab-content hidden">
-            <div class="card">
-                <h2>💬 P2P Secure Chat</h2>
-                <p class="subtitle" style="margin-bottom: 15px;">100% Client-Side. No servers. Direct connection.</p>
-
-                <div id="offlineBanner" class="hidden status-msg" style="color: #ef4444; margin-bottom: 10px;">
-                    ⚠️ You are offline. Vault & tools still work locally.
-                </div>
-
-                <div class="chat-connection">
-                    <div class="my-id-box">
-                        <span>Your ID:</span>
-                        <input type="text" id="myPeerId" readonly placeholder="Generating...">
-                        <button onclick="copyMyId()" title="Copy ID">📋</button>
-                        <button onclick="generateInviteLink()" title="Copy Invite Link">🔗 Invite</button>
-                    </div>
-                    <div class="connect-box">
-                        <input type="text" id="connectId" placeholder="Paste friend's ID here...">
-                        <button onclick="connectToPeer()">Connect</button>
-                    </div>
-                </div>
-
-                <div id="connectionStatus" class="status-msg">Waiting for connection...</div>
-
-                <div class="video-container hidden" id="videoContainer">
-                    <div class="video-wrapper">
-                        <video id="remoteVideo" autoplay playsinline></video>
-                        <span class="video-label">Peer</span>
-                    </div>
-                    <div class="video-wrapper self-view">
-                        <video id="localVideo" autoplay playsinline muted></video>
-                        <span class="video-label">You</span>
-                    </div>
-                    <button class="end-call-btn" onclick="endCall()" title="End Call">📞 End Call</button>
-                </div>
-
-                <div class="chat-window" id="chatWindow">
-                    <div class="call-controls hidden" id="callControls">
-                        <button class="call-btn" onclick="startCall(false)" title="Audio Call">📞 Call</button>
-                        <button class="call-btn" onclick="startCall(true)" title="Video Call">📹 Video</button>
+        <main>
+            <section id="vault" class="tab-content" aria-labelledby="vaultTab">
+                <div class="card">
+                    <div class="section-heading">
+                        <div>
+                            <p class="eyebrow">Encrypted delivery</p>
+                            <h2>File Encryption</h2>
+                        </div>
+                        <p class="section-note">Encrypt once, then share through native apps, copied links, or messaging shortcuts without manually rewriting instructions.</p>
                     </div>
 
-                    <div id="chatMessages" class="chat-messages">
-                        <!-- Messages appear here -->
+                    <input type="file" id="fileInput">
+                    <input type="password" id="filePassword" placeholder="File password" oninput="checkFileStrength()">
+                    <input type="password" id="fileConfirmPassword" placeholder="Confirm password">
+
+                    <div id="fileStrength" class="strength"></div>
+
+                    <div class="btn-row">
+                        <button onclick="encryptFile()">Encrypt File</button>
+                        <button onclick="decryptFile()">Decrypt File</button>
+                        <button onclick="shareFile()">Share Package</button>
+                        <button class="ghost-btn" onclick="clearFile()">Clear</button>
                     </div>
-                    <div class="chat-controls-advanced hidden" id="advancedCallControls">
-                        <label class="control-item">
-                            <input type="checkbox" id="recordCall"> 📹 Record Call
-                        </label>
-                        <label class="control-item">
-                            <input type="checkbox" id="autoDestruct"> ⏱️ Self-Destruct
-                        </label>
-                        <label class="control-item">
-                            <input type="number" id="destructTimer" min="5" max="300" value="60" placeholder="Seconds"> sec
-                        </label>
+
+                    <div id="fileShareSummary" class="share-summary hidden"></div>
+                </div>
+
+                <div class="card">
+                    <div class="section-heading">
+                        <div>
+                            <p class="eyebrow">Linked handoff</p>
+                            <h2>Text Encryption</h2>
+                        </div>
+                        <p class="section-note">Encrypted text can be wrapped into a deep link so the recipient lands straight in the app with the payload already loaded.</p>
                     </div>
-                    <div class="chat-input-area">
-                        <button onclick="document.getElementById('mediaInput').click()" title="Send Media"
-                            class="icon-btn">📎</button>
-                        <input type="file" id="mediaInput" class="hidden" onchange="sendMediaFile()"
-                            accept="image/*,video/*,audio/*,application/*">
-                        <input type="text" id="chatInput" placeholder="Type a secure message..."
-                            onkeypress="handleChatKeyPress(event)">
-                        <button onclick="sendChatMessage()" title="Send">📤</button>
-                        <button onclick="toggleAdvancedControls()" title="Advanced Options" class="icon-btn">⚙️</button>
+
+                    <input type="password" id="textPassword" placeholder="Encryption password" oninput="checkTextStrength()">
+                    <input type="password" id="textConfirmPassword" placeholder="Confirm password">
+                    <div id="textStrength" class="strength"></div>
+
+                    <textarea id="textInput" placeholder="Enter plain text to encrypt or encrypted text to decrypt..."></textarea>
+
+                    <div class="btn-row">
+                        <button onclick="encryptText()">Encrypt</button>
+                        <button onclick="decryptText()">Decrypt</button>
+                        <button onclick="shareText()">Share Link</button>
+                        <button class="ghost-btn" onclick="clearText()">Clear</button>
+                    </div>
+
+                    <textarea id="textOutput" placeholder="Encrypted or decrypted output will appear here..."></textarea>
+
+                    <div id="textShareSummary" class="share-summary hidden"></div>
+                    <div class="encryption-info">
+                        <small>Format v2 uses a self-contained envelope with AES-256-GCM, random salt, and password-derived keys so the recipient can decrypt without any external metadata.</small>
                     </div>
                 </div>
-            </div>
-        </div>
+            </section>
 
+            <section id="risk" class="tab-content hidden" aria-labelledby="riskTab">
+                <div class="card">
+                    <div class="section-heading">
+                        <div>
+                            <p class="eyebrow">Privacy-safe intelligence</p>
+                            <h2>Exposure Audit & Recovery Playbooks</h2>
+                        </div>
+                        <p class="section-note">This audit stays client-side and avoids hidden scraping or leak-dump harvesting. It focuses on what you can verify and fix quickly.</p>
+                    </div>
+
+                    <div class="audit-grid">
+                        <div class="breach-section">
+                            <h3>Email Identity</h3>
+                            <input type="email" id="emailInput" placeholder="Primary email address">
+                            <button onclick="checkEmailBreach()">Analyze Email Surface</button>
+                            <div id="emailBreachResult" class="breach-result hidden"></div>
+                        </div>
+
+                        <div class="breach-section">
+                            <h3>Phone Recovery</h3>
+                            <input type="tel" id="phoneInput" placeholder="Recovery phone with country code">
+                            <button onclick="checkPhoneBreach()">Analyze Recovery Surface</button>
+                            <div id="phoneBreachResult" class="breach-result hidden"></div>
+                        </div>
+
+                        <div class="breach-section">
+                            <h3>Password Exposure</h3>
+                            <input type="password" id="passwordInput" placeholder="Password to test" oninput="checkRiskStrength()">
+                            <button onclick="checkPasswordBreach()">Check Against Pwned Passwords</button>
+                            <div id="passwordBreachResult" class="breach-result hidden"></div>
+                        </div>
+
+                        <div class="breach-section">
+                            <h3>Account Context</h3>
+                            <input type="text" id="usernameInput" placeholder="Primary username or handle">
+                            <input type="text" id="recoveryProviderInput" placeholder="Recovery email provider or backup mailbox">
+                            <input type="number" id="contactInput" placeholder="Approximate number of saved contacts">
+                            <div id="riskStrength" class="strength"></div>
+                        </div>
+                    </div>
+
+                    <button onclick="runComprehensiveScan()" class="btn-primary">Run Full Privacy Audit</button>
+
+                    <div id="resultText" class="result-text hidden"></div>
+
+                    <div class="wheel">
+                        <svg width="200" height="200" viewBox="0 0 200 200" aria-hidden="true">
+                            <circle cx="100" cy="100" r="85" stroke="#153047" stroke-width="15" fill="none"></circle>
+                            <circle id="progressCircle" cx="100" cy="100" r="85" stroke="#18b5a4" stroke-width="15" fill="none"
+                                stroke-dasharray="534" stroke-dashoffset="534" stroke-linecap="round"></circle>
+                        </svg>
+                        <div id="scoreText">0</div>
+                    </div>
+
+                    <div id="adviceText" class="advice-section hidden"></div>
+                    <div id="playbookGrid" class="playbook-grid"></div>
+                    <div id="breachTimeline" class="breach-timeline hidden"></div>
+
+                    <p class="privacy-note">
+                        Password checks use k-anonymity. Email and phone review stay local and are shown as provider/recovery guidance, not unverified breach claims.
+                    </p>
+                </div>
+            </section>
+
+            <section id="chat" class="tab-content hidden" aria-labelledby="chatTab">
+                <div class="card">
+                    <div class="section-heading">
+                        <div>
+                            <p class="eyebrow">Direct connection</p>
+                            <h2>P2P Secure Chat</h2>
+                        </div>
+                        <p class="section-note">Invite with one link, then switch between chat, voice, and video without leaving the page.</p>
+                    </div>
+
+                    <div class="chat-feature-row">
+                        <span class="feature-pill">WebRTC direct</span>
+                        <span class="feature-pill">Voice & video</span>
+                        <span class="feature-pill">Self-destruct mode</span>
+                        <span class="feature-pill">Media handoff</span>
+                    </div>
+
+                    <div id="offlineBanner" class="status-msg hidden">You are offline. Vault tools still work locally, but chat and live calling need connectivity.</div>
+
+                    <div class="chat-connection">
+                        <div class="my-id-box">
+                            <span>Your ID</span>
+                            <input type="text" id="myPeerId" readonly placeholder="Generating secure ID...">
+                            <button onclick="copyMyId()" title="Copy ID">Copy</button>
+                            <button onclick="generateInviteLink()" title="Share Invite">Share Invite</button>
+                        </div>
+                        <div class="connect-box">
+                            <input type="text" id="connectId" placeholder="Paste a peer ID or open an invite link">
+                            <button onclick="connectToPeer()">Connect</button>
+                        </div>
+                    </div>
+
+                    <div id="connectionStatus" class="status-msg">Waiting for connection...</div>
+
+                    <div class="video-container hidden" id="videoContainer">
+                        <div class="video-wrapper">
+                            <video id="remoteVideo" autoplay playsinline></video>
+                            <span class="video-label">Peer</span>
+                        </div>
+                        <div class="video-wrapper self-view">
+                            <video id="localVideo" autoplay playsinline muted></video>
+                            <span class="video-label">You</span>
+                        </div>
+                        <button class="end-call-btn" onclick="endCall()" title="End Call">End Call</button>
+                    </div>
+
+                    <div class="chat-window" id="chatWindow">
+                        <div class="call-controls hidden" id="callControls">
+                            <button class="call-btn" onclick="startCall(false)" title="Audio Call">Voice Call</button>
+                            <button class="call-btn" onclick="startCall(true)" title="Video Call">Video Call</button>
+                        </div>
+
+                        <div id="chatMessages" class="chat-messages" aria-live="polite"></div>
+
+                        <div class="chat-controls-advanced hidden" id="advancedCallControls">
+                            <label class="control-item">
+                                <input type="checkbox" id="recordCall">
+                                <span>Encrypt call recording</span>
+                            </label>
+                            <label class="control-item">
+                                <input type="checkbox" id="autoDestruct">
+                                <span>Self-destruct messages</span>
+                            </label>
+                            <label class="control-item inline-control">
+                                <span>Timer</span>
+                                <input type="number" id="destructTimer" min="5" max="300" value="60" placeholder="Seconds">
+                                <span>sec</span>
+                            </label>
+                        </div>
+
+                        <div class="chat-input-area">
+                            <button onclick="document.getElementById('mediaInput').click()" title="Send Media" class="icon-btn">Attach</button>
+                            <input type="file" id="mediaInput" class="hidden" onchange="sendMediaFile()" accept="image/*,video/*,audio/*,application/*">
+                            <textarea id="chatInput" rows="1" placeholder="Type a secure message..." onkeydown="handleChatKeyPress(event)" oninput="updateChatComposerHeight()"></textarea>
+                            <button onclick="sendChatMessage()" title="Send">Send</button>
+                            <button onclick="toggleAdvancedControls()" title="Advanced Options" class="icon-btn">Options</button>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </main>
     </div>
 
     <script src="script.js"></script>
     <script>
-        if ('serviceWorker' in navigator) {
-            window.addEventListener('load', () => {
-                navigator.serviceWorker.register('./sw.js', { updateViaCache: 'none' })
-                    .then(reg => {
-                        reg.update();
-                        console.log('ServiceWorker registered:', reg.scope);
+        if ("serviceWorker" in navigator) {
+            window.addEventListener("load", () => {
+                navigator.serviceWorker.register("./sw.js", { updateViaCache: "none" })
+                    .then(registration => {
+                        registration.update();
+                        console.log("ServiceWorker registered:", registration.scope);
                     })
-                    .catch(err => console.log('ServiceWorker registration failed:', err));
+                    .catch(error => console.log("ServiceWorker registration failed:", error));
             });
         }
-        window.addEventListener('offline', () => document.getElementById('offlineBanner').classList.remove('hidden'));
-        window.addEventListener('online', () => document.getElementById('offlineBanner').classList.add('hidden'));
-        if (!navigator.onLine) document.getElementById('offlineBanner').classList.remove('hidden');
     </script>
 </body>
-
 </html>

@@ -1,539 +1,1226 @@
-let chatWarningShown = false;
+const TEXT_FORMAT_PREFIX = "SVP-TEXT:2:";
+const FILE_FORMAT_MAGIC = "SVP2";
+const TEXT_LINK_LIMIT = 3500;
+const INLINE_FILE_LINK_LIMIT = 6 * 1024;
+const MAX_CHAT_ATTACHMENT_SIZE = 50 * 1024 * 1024;
+const MAX_CONNECT_RETRIES = 3;
+const AUTO_RECONNECT_DELAY_MS = 900;
+const encoder = new TextEncoder();
+const decoder = new TextDecoder();
+
+const DEFAULT_ICE_SERVERS = [
+    { urls: "stun:stun.l.google.com:19302" },
+    { urls: "stun:stun1.l.google.com:19302" },
+    { urls: "stun:openrelay.metered.ca:80" },
+    {
+        urls: [
+            "turn:openrelay.metered.ca:80",
+            "turn:openrelay.metered.ca:443",
+            "turn:openrelay.metered.ca:443?transport=tcp"
+        ],
+        username: "openrelayproject",
+        credential: "openrelayproject"
+    }
+];
+
+const state = {
+    chatWarningShown: false,
+    lastEncryptedText: "",
+    lastEncryptedFilePackage: null,
+    importedEncryptedFilePackage: null,
+    sharePackage: null,
+    peer: null,
+    currentConnection: null,
+    pendingConnection: null,
+    currentCall: null,
+    localStream: null,
+    mediaRecorder: null,
+    recordedChunks: [],
+    messageTimers: new Map()
+};
+
+const $ = id => document.getElementById(id);
+
+document.addEventListener("DOMContentLoaded", initApp);
+window.addEventListener("hashchange", handleSharedPayloadFromUrl);
+window.addEventListener("online", updateOfflineBanner);
+window.addEventListener("offline", updateOfflineBanner);
+window.addEventListener("beforeunload", handleBeforeUnload);
+
+function initApp() {
+    checkTerms();
+    updateOfflineBanner();
+    updateChatComposerHeight();
+    initPeer();
+    handleSharedPayloadFromUrl();
+
+    $("shareModal").addEventListener("click", event => {
+        if (event.target.id === "shareModal") {
+            closeShareModal();
+        }
+    });
+}
 
 function showTab(tab) {
-    document.getElementById("vault").classList.add("hidden");
-    document.getElementById("risk").classList.add("hidden");
-    document.getElementById("chat").classList.add("hidden");
+    ["vault", "risk", "chat"].forEach(section => {
+        $(section).classList.toggle("hidden", section !== tab);
+        $(`${section}Tab`).classList.toggle("active", section === tab);
+        $(`${section}Tab`).setAttribute("aria-selected", String(section === tab));
+    });
 
-    document.getElementById("vaultTab").classList.remove("active");
-    document.getElementById("riskTab").classList.remove("active");
-    document.getElementById("chatTab").classList.remove("active");
-
-    document.getElementById(tab).classList.remove("hidden");
-    document.getElementById(tab + "Tab").classList.add("active");
-
-    if (tab === "chat" && !chatWarningShown) {
-        chatWarningShown = true;
+    if (tab === "chat" && !state.chatWarningShown) {
+        state.chatWarningShown = true;
         setTimeout(() => {
-            appendSystemMessage("⚠️ PRECAUTION: Do not use for illegal activities. While data is transported securely natively, the person on the other end can record their own screen. Use responsibly.");
-        }, 100);
+            appendSystemMessage("Use secure chat responsibly. Transport is protected, but the person on the other side can still record what they receive.");
+        }, 120);
     }
 }
 
-/* ================= MILITARY-GRADE PASSWORD STRENGTH ================= */
+function handleBeforeUnload(event) {
+    const hasSensitiveDraft =
+        Boolean(state.currentConnection?.open) ||
+        Boolean(state.currentCall) ||
+        Boolean(state.lastEncryptedText) ||
+        Boolean(state.lastEncryptedFilePackage) ||
+        Boolean(state.importedEncryptedFilePackage);
 
-function calculateStrength(p) {
-    let s = 0;
-    if (p.length >= 8) s += 10;
-    if (p.length >= 12) s += 10;
-    if (p.length >= 16) s += 10;
-    if (p.length >= 20) s += 10;
-    if (/[a-z]/.test(p)) s += 10;
-    if (/[A-Z]/.test(p)) s += 10;
-    if (/[0-9]/.test(p)) s += 10;
-    if (/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(p)) s += 15;
-    if (/[^A-Za-z0-9]/.test(p) && /[A-Za-z0-9]/.test(p)) s += 5;
-    if (p.length >= 24 && /[!@#$%^&*]/.test(p) && /[0-9]/.test(p)) s += 10;
-    return Math.min(s, 100);
+    if (!hasSensitiveDraft) {
+        return;
+    }
+
+    event.preventDefault();
+    event.returnValue = "Closing this tab clears local secure content and active sessions.";
 }
 
-function displayStrength(id, value) {
-    let el = document.getElementById(id);
-    let score = calculateStrength(value);
+function checkTerms() {
+    const accepted = localStorage.getItem("termsAccepted") === "true";
+    $("termsModal").classList.toggle("hidden", accepted);
+}
 
-    if (!value) { el.innerText = ""; return; }
+function acceptTerms() {
+    localStorage.setItem("termsAccepted", "true");
+    $("termsModal").classList.add("hidden");
+}
 
-    if (score < 40) {
-        el.innerText = "🔴 Weak – Increase length, add special chars";
-        el.className = "strength weak";
-    }
-    else if (score < 60) {
-        el.innerText = "🟡 Fair – Add mixed characters & special symbols";
-        el.className = "strength medium";
-    }
-    else if (score < 80) {
-        el.innerText = "🟢 Good – Solid security foundation";
-        el.className = "strength strong";
-    }
-    else {
-        el.innerText = "🟢🟢 Military-Grade – Exceptional security!";
-        el.className = "strength military";
-    }
+function updateOfflineBanner() {
+    $("offlineBanner").classList.toggle("hidden", navigator.onLine);
 }
 
 function checkTextStrength() {
-    displayStrength("textStrength", document.getElementById("textPassword").value);
+    displayStrength("textStrength", $("textPassword").value);
 }
 
 function checkFileStrength() {
-    displayStrength("fileStrength", document.getElementById("filePassword").value);
+    displayStrength("fileStrength", $("filePassword").value);
 }
 
 function checkRiskStrength() {
-    displayStrength("riskStrength", document.getElementById("passwordInput").value);
+    displayStrength("riskStrength", $("passwordInput").value);
 }
 
-/* ================= MILITARY-GRADE TEXT ENCRYPTION (AES-256-GCM + ECDH) ================= */
+function calculateStrength(password) {
+    if (!password) {
+        return 0;
+    }
 
-// Enhanced PBKDF2 with increased security parameters
-async function deriveKeyMilitary(password, salt, iterations = 300000) {
-    let enc = new TextEncoder();
-    let keyMaterial = await crypto.subtle.importKey(
+    const checks = [
+        password.length >= 10 ? 12 : 0,
+        password.length >= 14 ? 16 : 0,
+        password.length >= 18 ? 16 : 0,
+        /[a-z]/.test(password) ? 12 : 0,
+        /[A-Z]/.test(password) ? 12 : 0,
+        /\d/.test(password) ? 12 : 0,
+        /[^A-Za-z0-9]/.test(password) ? 16 : 0,
+        /(.)\1{2,}/.test(password) ? -10 : 0,
+        /password|admin|qwerty|letmein/i.test(password) ? -25 : 0,
+        new Set(password).size >= Math.min(password.length, 10) ? 10 : 0
+    ];
+
+    return Math.max(0, Math.min(100, checks.reduce((sum, value) => sum + value, 0)));
+}
+
+function displayStrength(elementId, value) {
+    const element = $(elementId);
+    const score = calculateStrength(value);
+
+    if (!value) {
+        element.textContent = "";
+        element.className = "strength";
+        return;
+    }
+
+    if (score < 40) {
+        element.textContent = "Weak: increase length and mix character types.";
+        element.className = "strength weak";
+    } else if (score < 65) {
+        element.textContent = "Fair: stronger than average, but still worth improving.";
+        element.className = "strength medium";
+    } else if (score < 85) {
+        element.textContent = "Strong: good entropy and structure.";
+        element.className = "strength strong";
+    } else {
+        element.textContent = "Excellent: long, mixed, and resistant to reuse patterns.";
+        element.className = "strength military";
+    }
+}
+
+async function deriveAesKey(password, saltBytes, usages) {
+    const keyMaterial = await crypto.subtle.importKey(
         "raw",
-        enc.encode(password),
+        encoder.encode(password),
         { name: "PBKDF2" },
         false,
         ["deriveKey"]
     );
-    
-    return await crypto.subtle.deriveKey({
-        name: "PBKDF2",
-        salt: enc.encode(salt),
-        iterations: iterations,
-        hash: "SHA-256"
-    }, keyMaterial, { name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]);
+
+    return crypto.subtle.deriveKey(
+        {
+            name: "PBKDF2",
+            salt: saltBytes,
+            iterations: 250000,
+            hash: "SHA-256"
+        },
+        keyMaterial,
+        { name: "AES-GCM", length: 256 },
+        false,
+        usages
+    );
+}
+
+function bytesToBase64(bytes) {
+    let binary = "";
+    const chunkSize = 0x8000;
+
+    for (let index = 0; index < bytes.length; index += chunkSize) {
+        const chunk = bytes.subarray(index, index + chunkSize);
+        binary += String.fromCharCode(...chunk);
+    }
+
+    return btoa(binary);
+}
+
+function base64ToBytes(base64) {
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+
+    for (let index = 0; index < binary.length; index += 1) {
+        bytes[index] = binary.charCodeAt(index);
+    }
+
+    return bytes;
+}
+
+function encodeJsonPayload(value) {
+    return bytesToBase64(encoder.encode(JSON.stringify(value)));
+}
+
+function decodeJsonPayload(value) {
+    return JSON.parse(decoder.decode(base64ToBytes(value)));
+}
+
+function escapeHtml(value) {
+    return value.replace(/[&<>"']/g, char => ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        "\"": "&quot;",
+        "'": "&#39;"
+    }[char]));
+}
+
+function downloadBlob(blob, filename) {
+    const objectUrl = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = objectUrl;
+    anchor.download = filename;
+    anchor.click();
+    setTimeout(() => URL.revokeObjectURL(objectUrl), 1500);
+}
+
+function buildAppUrl(hashParams = {}, searchParams = {}) {
+    const url = new URL(window.location.origin + window.location.pathname);
+    Object.entries(searchParams).forEach(([key, value]) => {
+        if (value) {
+            url.searchParams.set(key, value);
+        }
+    });
+
+    const hash = new URLSearchParams();
+    Object.entries(hashParams).forEach(([key, value]) => {
+        if (value) {
+            hash.set(key, value);
+        }
+    });
+
+    url.hash = hash.toString();
+    return url.toString();
+}
+
+function showBanner(message, tone = "info") {
+    const banner = $("importBanner");
+    banner.textContent = message;
+    banner.className = "status-msg";
+    if (tone === "success") {
+        banner.classList.add("connected");
+    } else if (tone === "warning") {
+        banner.classList.add("warning");
+    } else if (tone === "error") {
+        banner.classList.add("error");
+    }
+    banner.classList.remove("hidden");
+}
+
+function clearBanner() {
+    $("importBanner").classList.add("hidden");
+}
+
+function updateShareSummary(targetId, title, lines) {
+    const target = $(targetId);
+    const cleanLines = lines.filter(Boolean);
+
+    target.innerHTML = [
+        `<strong>${escapeHtml(title)}</strong>`,
+        ...cleanLines.map(line => `<p>${escapeHtml(line)}</p>`)
+    ].join("");
+    target.classList.remove("hidden");
+}
+
+function clearFileState() {
+    state.lastEncryptedFilePackage = null;
+    state.importedEncryptedFilePackage = null;
+    $("fileShareSummary").classList.add("hidden");
 }
 
 async function encryptText() {
-    let text = document.getElementById("textInput").value;
-    let p1 = document.getElementById("textPassword").value;
-    let p2 = document.getElementById("textConfirmPassword").value;
-    
-    if (!p1 || p1 !== p2) { alert("❌ Password mismatch or empty"); return; }
-    if (calculateStrength(p1) < 40) { alert("⚠️ Password too weak. Try 12+ chars with mixed types."); return; }
+    const plainText = $("textInput").value;
+    const password = $("textPassword").value;
+    const confirmPassword = $("textConfirmPassword").value;
+
+    if (!plainText.trim()) {
+        alert("Enter the text you want to encrypt.");
+        return;
+    }
+
+    if (!password || password !== confirmPassword) {
+        alert("Passwords must match before encrypting.");
+        return;
+    }
+
+    if (calculateStrength(password) < 40) {
+        alert("Use a stronger password before sharing encrypted text.");
+        return;
+    }
 
     try {
-        let enc = new TextEncoder();
-        let key = await deriveKeyMilitary(p1, "vault-" + Date.now());
-        
-        let iv = crypto.getRandomValues(new Uint8Array(12));
-        let additionalData = enc.encode("SecureVault" + new Date().toISOString().split('T')[0]);
-        
-        let encrypted = await crypto.subtle.encrypt(
-            { name: "AES-GCM", iv, additionalData },
+        const salt = crypto.getRandomValues(new Uint8Array(16));
+        const iv = crypto.getRandomValues(new Uint8Array(12));
+        const key = await deriveAesKey(password, salt, ["encrypt"]);
+        const cipherBytes = new Uint8Array(await crypto.subtle.encrypt(
+            {
+                name: "AES-GCM",
+                iv,
+                additionalData: encoder.encode("SecureVaultTextV2")
+            },
             key,
-            enc.encode(text)
-        );
-        
-        // Create HMAC for integrity
-        let hmacKey = await crypto.subtle.importKey(
-            "raw",
-            enc.encode(p1 + "hmac"),
-            { name: "HMAC", hash: "SHA-512" },
-            false,
-            ["sign"]
-        );
-        
-        let hmac = await crypto.subtle.sign("HMAC", hmacKey, new Uint8Array(encrypted));
-        
-        let output = btoa(String.fromCharCode(
-            ...iv,
-            ...new Uint8Array(encrypted),
-            ...new Uint8Array(hmac)
+            encoder.encode(plainText)
         ));
-        
-        document.getElementById("textOutput").value = output;
-        appendSystemMessage("✅ Text encrypted with 256-bit AES-GCM + HMAC-SHA512");
-    } catch (err) {
-        alert("❌ Encryption failed: " + err.message);
+
+        const envelope = {
+            v: 2,
+            salt: bytesToBase64(salt),
+            iv: bytesToBase64(iv),
+            data: bytesToBase64(cipherBytes),
+            createdAt: new Date().toISOString()
+        };
+
+        const payload = TEXT_FORMAT_PREFIX + encodeJsonPayload(envelope);
+        state.lastEncryptedText = payload;
+        $("textOutput").value = payload;
+
+        const shareLink = payload.length <= TEXT_LINK_LIMIT
+            ? buildAppUrl({ mode: "text", payload })
+            : buildAppUrl({ mode: "text" });
+
+        updateShareSummary(
+            "textShareSummary",
+            "Encrypted text ready",
+            payload.length <= TEXT_LINK_LIMIT
+                ? [
+                    "The share link already contains the encrypted payload.",
+                    "Recipients will open the app with the message preloaded for decryption."
+                ]
+                : [
+                    "The encrypted block is large, so the share dialog will include the app link plus a copyable message.",
+                    "Recipients can paste the encrypted block into the app if their messenger trims long links."
+                ]
+        );
+
+        appendSystemMessage(`Text encrypted. Share-ready link prepared: ${shareLink.length <= 2048 ? "compact" : "extended"} package.`);
+    } catch (error) {
+        alert(`Encryption failed: ${error.message}`);
     }
 }
 
 async function decryptText() {
+    const input = ($("textInput").value || $("textOutput").value).trim();
+    const password = $("textPassword").value;
+
+    if (!input) {
+        alert("Paste encrypted text into the input first.");
+        return;
+    }
+
+    if (!password) {
+        alert("Enter the decryption password.");
+        return;
+    }
+
+    if (!input.startsWith(TEXT_FORMAT_PREFIX)) {
+        alert("This app now expects the new self-contained text format. Re-encrypt the message with the updated build if needed.");
+        return;
+    }
+
     try {
-        let data = atob(document.getElementById("textInput").value);
-        let password = document.getElementById("textPassword").value;
-        if (!password) { alert("❌ Enter password"); return; }
-
-        let bytes = Uint8Array.from(data, c => c.charCodeAt(0));
-        let iv = bytes.slice(0, 12);
-        let encrypted = bytes.slice(12, bytes.length - 64); // HMAC is 64 bytes (SHA512)
-        let receivedHmac = bytes.slice(bytes.length - 64);
-
-        let enc = new TextEncoder();
-        let key = await deriveKeyMilitary(password, "vault-" + new Date().toISOString().split('T')[0]);
-        
-        // Verify HMAC
-        let hmacKey = await crypto.subtle.importKey(
-            "raw",
-            enc.encode(password + "hmac"),
-            { name: "HMAC", hash: "SHA-512" },
-            false,
-            ["verify"]
-        );
-        
-        let isValid = await crypto.subtle.verify(
-            "HMAC",
-            hmacKey,
-            receivedHmac,
-            encrypted
-        );
-        
-        if (!isValid) {
-            alert("❌ INTEGRITY CHECK FAILED: Data may have been tampered with!");
-            return;
-        }
-
-        let additionalData = enc.encode("SecureVault" + new Date().toISOString().split('T')[0]);
-        let decrypted = await crypto.subtle.decrypt(
-            { name: "AES-GCM", iv, additionalData },
+        const envelope = decodeJsonPayload(input.slice(TEXT_FORMAT_PREFIX.length));
+        const salt = base64ToBytes(envelope.salt);
+        const iv = base64ToBytes(envelope.iv);
+        const cipherBytes = base64ToBytes(envelope.data);
+        const key = await deriveAesKey(password, salt, ["decrypt"]);
+        const plainBuffer = await crypto.subtle.decrypt(
+            {
+                name: "AES-GCM",
+                iv,
+                additionalData: encoder.encode("SecureVaultTextV2")
+            },
             key,
-            encrypted
+            cipherBytes
         );
-        
-        document.getElementById("textOutput").value = new TextDecoder().decode(decrypted);
-        appendSystemMessage("✅ Text decrypted successfully. Integrity verified.");
-    } catch (err) {
-        alert("❌ Decryption failed: Wrong password or corrupted data. " + err.message);
+
+        $("textOutput").value = decoder.decode(plainBuffer);
+        appendSystemMessage("Text decrypted successfully.");
+    } catch (error) {
+        alert(`Decryption failed: ${error.message}`);
     }
 }
 
 function shareText() {
-    let data = document.getElementById("textOutput").value;
-    if (!data) { alert("Nothing to share"); return; }
-    navigator.clipboard.writeText(data);
-    alert("Copied to clipboard");
+    const encryptedText = state.lastEncryptedText || $("textOutput").value.trim();
+
+    if (!encryptedText) {
+        alert("Encrypt some text first so there is something to share.");
+        return;
+    }
+
+    const linkFits = encryptedText.length <= TEXT_LINK_LIMIT;
+    const deepLink = linkFits
+        ? buildAppUrl({ mode: "text", payload: encryptedText })
+        : buildAppUrl({ mode: "text" });
+
+    const shareTextMessage = linkFits
+        ? `Open this Secure Vault Pro link and enter the agreed password to decrypt:\n${deepLink}`
+        : `Open Secure Vault Pro with this link, then paste the encrypted block below.\n\n${deepLink}\n\nEncrypted text:\n${encryptedText}`;
+
+    openShareModal({
+        title: "Share encrypted text",
+        description: "Choose the fastest route. Native share works best on mobile, while copy and messaging shortcuts are useful on desktop.",
+        link: deepLink,
+        text: shareTextMessage,
+        hint: linkFits
+            ? "This link already contains the encrypted text."
+            : "This payload is too large for a compact deep link, so the share message includes both the app link and the encrypted block."
+    });
 }
 
 function clearText() {
-    document.getElementById("textInput").value = "";
-    document.getElementById("textOutput").value = "";
+    $("textInput").value = "";
+    $("textOutput").value = "";
+    $("textPassword").value = "";
+    $("textConfirmPassword").value = "";
+    $("textStrength").textContent = "";
+    $("textShareSummary").classList.add("hidden");
+    state.lastEncryptedText = "";
 }
 
-/* ================= FILE ENCRYPTION ================= */
+function packFileEnvelope(metadata, cipherBytes) {
+    const magicBytes = encoder.encode(FILE_FORMAT_MAGIC);
+    const headerBytes = encoder.encode(JSON.stringify(metadata));
+    const headerLength = new Uint8Array(4);
+    new DataView(headerLength.buffer).setUint32(0, headerBytes.length, false);
 
-let lastEncryptedFileBlob = null;
+    const payload = new Uint8Array(magicBytes.length + headerLength.length + headerBytes.length + cipherBytes.length);
+    payload.set(magicBytes, 0);
+    payload.set(headerLength, magicBytes.length);
+    payload.set(headerBytes, magicBytes.length + headerLength.length);
+    payload.set(cipherBytes, magicBytes.length + headerLength.length + headerBytes.length);
+    return payload;
+}
+
+function unpackFileEnvelope(bytes) {
+    const magic = decoder.decode(bytes.slice(0, 4));
+
+    if (magic !== FILE_FORMAT_MAGIC) {
+        return null;
+    }
+
+    const headerLength = new DataView(bytes.buffer, bytes.byteOffset + 4, 4).getUint32(0, false);
+    const headerStart = 8;
+    const headerEnd = headerStart + headerLength;
+    const metadata = JSON.parse(decoder.decode(bytes.slice(headerStart, headerEnd)));
+    const cipherBytes = bytes.slice(headerEnd);
+    return { metadata, cipherBytes };
+}
 
 async function encryptFile() {
-    let file = document.getElementById("fileInput").files[0];
-    let password = document.getElementById("filePassword").value;
-    let confirm = document.getElementById("fileConfirmPassword").value;
-    if (!file || password !== confirm) { alert("Check file or password"); return; }
+    const file = $("fileInput").files[0];
+    const password = $("filePassword").value;
+    const confirmPassword = $("fileConfirmPassword").value;
 
-    let buffer = await file.arrayBuffer();
-    let enc = new TextEncoder();
+    if (!file) {
+        alert("Choose a file before encrypting.");
+        return;
+    }
 
-    let keyMaterial = await crypto.subtle.importKey("raw", enc.encode(password), { name: "PBKDF2" }, false, ["deriveKey"]);
-    let key = await crypto.subtle.deriveKey({
-        name: "PBKDF2", salt: enc.encode("vault"),
-        iterations: 120000, hash: "SHA-256"
-    }, keyMaterial, { name: "AES-GCM", length: 256 }, false, ["encrypt"]);
+    if (!password || password !== confirmPassword) {
+        alert("Passwords must match before file encryption.");
+        return;
+    }
 
-    let iv = crypto.getRandomValues(new Uint8Array(12));
-    let encrypted = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, buffer);
+    if (calculateStrength(password) < 40) {
+        alert("Use a stronger password for the encrypted file package.");
+        return;
+    }
 
-    lastEncryptedFileBlob = new Blob([iv, new Uint8Array(encrypted)]);
-    let link = document.createElement("a");
-    link.href = URL.createObjectURL(lastEncryptedFileBlob);
-    link.download = file.name + ".enc";
-    link.click();
+    try {
+        const sourceBuffer = await file.arrayBuffer();
+        const salt = crypto.getRandomValues(new Uint8Array(16));
+        const iv = crypto.getRandomValues(new Uint8Array(12));
+        const key = await deriveAesKey(password, salt, ["encrypt"]);
+        const cipherBytes = new Uint8Array(await crypto.subtle.encrypt(
+            { name: "AES-GCM", iv },
+            key,
+            sourceBuffer
+        ));
+
+        const metadata = {
+            v: 2,
+            name: file.name,
+            type: file.type || "application/octet-stream",
+            size: file.size,
+            salt: bytesToBase64(salt),
+            iv: bytesToBase64(iv),
+            createdAt: new Date().toISOString()
+        };
+
+        const payload = packFileEnvelope(metadata, cipherBytes);
+        const blob = new Blob([payload], { type: "application/octet-stream" });
+        const downloadName = `${file.name}.svp.enc`;
+
+        state.lastEncryptedFilePackage = {
+            blob,
+            name: downloadName,
+            metadata
+        };
+        state.importedEncryptedFilePackage = null;
+
+        downloadBlob(blob, downloadName);
+
+        updateShareSummary(
+            "fileShareSummary",
+            "Encrypted file package ready",
+            [
+                "A local encrypted file was downloaded immediately.",
+                blob.size <= INLINE_FILE_LINK_LIMIT
+                    ? "This package is small enough to embed in a deep link."
+                    : "Native share can send the attachment plus an app link in one step on supported devices."
+            ]
+        );
+
+        appendSystemMessage(`Encrypted file ready: ${downloadName}`);
+    } catch (error) {
+        alert(`File encryption failed: ${error.message}`);
+    }
 }
 
-function shareFile() {
-    if (!lastEncryptedFileBlob) { alert("No encrypted file yet"); return; }
-    navigator.clipboard.writeText("Encrypted file ready. Share downloaded file.");
-    alert("File ready to share.");
+async function decryptFile() {
+    const password = $("filePassword").value;
+    const selectedFile = $("fileInput").files[0];
+    const importedPackage = state.importedEncryptedFilePackage;
+
+    if (!selectedFile && !importedPackage) {
+        alert("Choose an encrypted file or open a shared deep link first.");
+        return;
+    }
+
+    if (!password) {
+        alert("Enter the decryption password.");
+        return;
+    }
+
+    try {
+        const source = selectedFile
+            ? new Uint8Array(await selectedFile.arrayBuffer())
+            : new Uint8Array(await importedPackage.blob.arrayBuffer());
+
+        const modernEnvelope = unpackFileEnvelope(source);
+
+        if (modernEnvelope) {
+            const salt = base64ToBytes(modernEnvelope.metadata.salt);
+            const iv = base64ToBytes(modernEnvelope.metadata.iv);
+            const key = await deriveAesKey(password, salt, ["decrypt"]);
+            const plainBuffer = await crypto.subtle.decrypt(
+                { name: "AES-GCM", iv },
+                key,
+                modernEnvelope.cipherBytes
+            );
+
+            downloadBlob(
+                new Blob([plainBuffer], { type: modernEnvelope.metadata.type || "application/octet-stream" }),
+                modernEnvelope.metadata.name || "decrypted-file"
+            );
+            appendSystemMessage(`File decrypted: ${modernEnvelope.metadata.name}`);
+            return;
+        }
+
+        const legacyIv = source.slice(0, 12);
+        const legacyCipher = source.slice(12);
+        const keyMaterial = await crypto.subtle.importKey(
+            "raw",
+            encoder.encode(password),
+            { name: "PBKDF2" },
+            false,
+            ["deriveKey"]
+        );
+        const legacyKey = await crypto.subtle.deriveKey(
+            {
+                name: "PBKDF2",
+                salt: encoder.encode("vault"),
+                iterations: 120000,
+                hash: "SHA-256"
+            },
+            keyMaterial,
+            { name: "AES-GCM", length: 256 },
+            false,
+            ["decrypt"]
+        );
+
+        const plainBuffer = await crypto.subtle.decrypt(
+            { name: "AES-GCM", iv: legacyIv },
+            legacyKey,
+            legacyCipher
+        );
+
+        const originalName = selectedFile
+            ? selectedFile.name.replace(/\.enc$/i, "").replace(/\.svp$/i, "")
+            : (importedPackage?.name || "decrypted-file").replace(/\.svp\.enc$/i, "");
+
+        downloadBlob(new Blob([plainBuffer]), originalName || "decrypted-file");
+        appendSystemMessage("Legacy encrypted file decrypted successfully.");
+    } catch (error) {
+        alert(`File decryption failed: ${error.message}`);
+    }
+}
+
+async function shareFile() {
+    const activePackage = state.lastEncryptedFilePackage || state.importedEncryptedFilePackage;
+
+    if (!activePackage) {
+        alert("Encrypt a file or open a shared package first.");
+        return;
+    }
+
+    const fileBlob = activePackage.blob;
+    const fileName = activePackage.name || activePackage.metadata?.name || "secure-package.svp.enc";
+    const linkFits = fileBlob.size <= INLINE_FILE_LINK_LIMIT;
+    let deepLink = buildAppUrl({ mode: "file", name: fileName });
+
+    if (linkFits) {
+        const inlinePayload = bytesToBase64(new Uint8Array(await fileBlob.arrayBuffer()));
+        deepLink = buildAppUrl({ mode: "file", name: fileName, payload: inlinePayload });
+    }
+
+    const shareMessage = linkFits
+        ? `Open this Secure Vault Pro link to receive the encrypted file package instantly:\n${deepLink}`
+        : `Open Secure Vault Pro with this link, then use the attached encrypted file package named ${fileName}.\n${deepLink}`;
+
+    openShareModal({
+        title: "Share encrypted file package",
+        description: "On devices with Web Share support, the fastest option is to send the encrypted attachment and app link together.",
+        link: deepLink,
+        text: shareMessage,
+        hint: linkFits
+            ? "This package is embedded in the deep link, so the recipient can open it directly in the app."
+            : "Large encrypted files still need the .svp.enc attachment. The link gets the recipient straight back into the app.",
+        file: new File([fileBlob], fileName, { type: "application/octet-stream" })
+    });
 }
 
 function clearFile() {
-    document.getElementById("fileInput").value = "";
+    $("fileInput").value = "";
+    $("filePassword").value = "";
+    $("fileConfirmPassword").value = "";
+    $("fileStrength").textContent = "";
+    clearFileState();
 }
 
-/* ================= COMPREHENSIVE BREACH DETECTION ================= */
+function openShareModal(sharePackage) {
+    state.sharePackage = sharePackage;
+    $("shareModalTitle").textContent = sharePackage.title;
+    $("shareModalDescription").textContent = sharePackage.description;
+    $("shareHint").textContent = sharePackage.hint || "";
+    $("shareLinkField").value = sharePackage.link || "";
+    $("shareLinkWrap").classList.toggle("hidden", !sharePackage.link);
+    renderShareActions(sharePackage);
+    $("shareModal").classList.remove("hidden");
+}
 
-let breachCache = {};
+function closeShareModal() {
+    state.sharePackage = null;
+    $("shareModal").classList.add("hidden");
+}
 
-// Check email across multiple breach databases
-async function checkEmailBreach() {
-    let email = document.getElementById("emailInput").value.toLowerCase().trim();
-    if (!email) { alert("Enter email"); return; }
-    
-    document.getElementById("emailBreachResult").innerHTML = "🔍 Scanning...";
-    document.getElementById("emailBreachResult").classList.remove("hidden");
-    
-    try {
-        // Check with Have I Been Pwned
-        let response = await fetch(`https://haveibeenpwned.com/api/v3/breachedaccount/${encodeURIComponent(email)}`, {
-            headers: { 'User-Agent': 'SecureVault' }
-        });
-        
-        let result = `<strong>Email: ${email}</strong><br>`;
-        
-        if (response.status === 200) {
-            let breaches = await response.json();
-            result += `⚠️ <strong style="color:red;">FOUND IN ${breaches.length} BREACHES:</strong><br>`;
-            breaches.forEach(b => {
-                result += `• <strong>${b.Name}</strong> (${b.BreachDate}) - ${b.Title}<br>`;
-            });
-            breachCache[email] = breaches;
-        } else if (response.status === 404) {
-            result += `✅ <strong style="color:green;">CLEAN - Not found in known breaches</strong>`;
-        } else {
-            result += `⏳ API Rate Limited - Try again in a moment`;
+function renderShareActions(sharePackage) {
+    const actionGrid = $("shareActionGrid");
+    actionGrid.innerHTML = "";
+
+    const actions = [
+        navigator.share ? { type: "button", label: "Native share", onClick: () => shareViaNavigator(sharePackage) } : null,
+        sharePackage.link ? { type: "button", label: "Copy link", onClick: () => copyToClipboard(sharePackage.link, "Share link copied.") } : null,
+        sharePackage.text ? { type: "button", label: "Copy message", onClick: () => copyToClipboard(sharePackage.text, "Share message copied.") } : null,
+        sharePackage.file ? { type: "button", label: "Download package", onClick: () => downloadBlob(sharePackage.file, sharePackage.file.name) } : null,
+        sharePackage.text ? { type: "link", label: "Email", href: `mailto:?subject=${encodeURIComponent(sharePackage.title)}&body=${encodeURIComponent(sharePackage.text)}` } : null,
+        sharePackage.text ? { type: "link", label: "WhatsApp", href: `https://wa.me/?text=${encodeURIComponent(sharePackage.text)}` } : null,
+        sharePackage.text ? { type: "link", label: "Telegram", href: `https://t.me/share/url?url=${encodeURIComponent(sharePackage.link || "")}&text=${encodeURIComponent(sharePackage.text)}` } : null
+    ].filter(Boolean);
+
+    actions.forEach(action => {
+        if (action.type === "button") {
+            const button = document.createElement("button");
+            button.type = "button";
+            button.textContent = action.label;
+            button.addEventListener("click", action.onClick);
+            actionGrid.appendChild(button);
+            return;
         }
-        
-        document.getElementById("emailBreachResult").innerHTML = result;
-    } catch (err) {
-        document.getElementById("emailBreachResult").innerHTML = `❌ Error: ${err.message}. Continuing with local check...`;
+
+        const link = document.createElement("a");
+        link.href = action.href;
+        link.target = "_blank";
+        link.rel = "noopener noreferrer";
+        link.textContent = action.label;
+        actionGrid.appendChild(link);
+    });
+}
+
+async function shareViaNavigator(sharePackage) {
+    try {
+        const shareData = {
+            title: sharePackage.title,
+            text: sharePackage.text
+        };
+
+        if (sharePackage.file && navigator.canShare?.({ files: [sharePackage.file] })) {
+            shareData.files = [sharePackage.file];
+        } else if (sharePackage.link) {
+            shareData.url = sharePackage.link;
+        }
+
+        await navigator.share(shareData);
+        closeShareModal();
+    } catch (error) {
+        if (error.name !== "AbortError") {
+            alert(`Native sharing failed: ${error.message}`);
+        }
     }
 }
 
-// Check phone for leaks
-async function checkPhoneBreach() {
-    let phone = document.getElementById("phoneInput").value.replace(/\D/g, '');
-    if (!phone || phone.length < 10) { alert("Enter valid phone"); return; }
-    
-    document.getElementById("phoneBreachResult").innerHTML = "🔍 Scanning phone databases...";
-    document.getElementById("phoneBreachResult").classList.remove("hidden");
-    
+async function copyToClipboard(value, successMessage) {
     try {
-        // Create hash of phone for privacy
-        let enc = new TextEncoder();
-        let hashBuffer = await crypto.subtle.digest("SHA-256", enc.encode(phone));
-        let hashArray = Array.from(new Uint8Array(hashBuffer));
-        let phoneHash = hashArray.map(b => b.toString(16).padStart(2, "0")).join("");
-        
-        // Simulate dark web monitoring (in real app, this would connect to actual databases)
-        let riskLevel = Math.random() > 0.7 ? "HIGH" : "LOW";
-        let result = `<strong>Phone Analysis:</strong><br>`;
-        result += `Hash: ${phoneHash.substring(0, 16)}...<br>`;
-        
-        if (riskLevel === "HIGH") {
-            result += `⚠️ <strong style="color:red;">RISK DETECTED:</strong> Phone number appears in 2 data breaches<br>`;
-            result += `• Telecom breach (2021)<br>`;
-            result += `• Service provider leak (2022)<br>`;
-        } else {
-            result += `✅ <strong style="color:green;">CLEAN:</strong> No known leaks detected`;
-        }
-        
-        document.getElementById("phoneBreachResult").innerHTML = result;
-    } catch (err) {
-        document.getElementById("phoneBreachResult").innerHTML = `Error: ${err.message}`;
+        await navigator.clipboard.writeText(value);
+        showBanner(successMessage, "success");
+    } catch (error) {
+        window.prompt("Copy this value:", value);
     }
 }
 
-// Check password against breach database
+function handleSharedPayloadFromUrl() {
+    const rawHash = window.location.hash.startsWith("#")
+        ? window.location.hash.slice(1)
+        : "";
+
+    if (!rawHash) {
+        return;
+    }
+
+    const hashParams = new URLSearchParams(rawHash);
+    const mode = hashParams.get("mode");
+
+    if (mode === "text") {
+        const payload = hashParams.get("payload");
+        showTab("vault");
+        clearBanner();
+
+        if (payload) {
+            $("textInput").value = payload;
+            showBanner("Encrypted text loaded from the link. Enter the password to decrypt it.", "success");
+        } else {
+            showBanner("Secure link opened. If the sender used a long message fallback, paste the encrypted text into the vault.", "warning");
+        }
+
+        clearHashOnly();
+    }
+
+    if (mode === "file") {
+        const payload = hashParams.get("payload");
+        const name = hashParams.get("name") || "shared-package.svp.enc";
+        showTab("vault");
+        clearBanner();
+
+        if (payload) {
+            const bytes = base64ToBytes(payload);
+            const blob = new Blob([bytes], { type: "application/octet-stream" });
+            state.importedEncryptedFilePackage = { blob, name };
+            state.lastEncryptedFilePackage = null;
+            updateShareSummary(
+                "fileShareSummary",
+                "Shared package imported",
+                [
+                    `${name} is loaded from the deep link.`,
+                    "Enter the agreed password and use Decrypt File."
+                ]
+            );
+            showBanner("Encrypted file package loaded from the link.", "success");
+        } else {
+            showBanner(`Open the app, then attach the encrypted file package named ${name}.`, "warning");
+        }
+
+        clearHashOnly();
+    }
+}
+
+function clearHashOnly() {
+    history.replaceState({}, "", `${window.location.pathname}${window.location.search}`);
+}
+
+function detectEmailProvider(email) {
+    const domain = (email.split("@")[1] || "").toLowerCase();
+
+    if (domain === "gmail.com" || domain === "googlemail.com") {
+        return {
+            key: "google",
+            label: "Google / Gmail",
+            score: email.includes("+") ? 88 : 70
+        };
+    }
+
+    if (domain.endsWith("proton.me") || domain.endsWith("protonmail.com") || domain.endsWith("pm.me")) {
+        return {
+            key: "proton",
+            label: "Proton",
+            score: email.includes("+") ? 90 : 76
+        };
+    }
+
+    if (domain) {
+        return {
+            key: "custom",
+            label: domain,
+            score: email.includes("+") ? 78 : 66
+        };
+    }
+
+    return {
+        key: "unknown",
+        label: "Unknown",
+        score: 50
+    };
+}
+
+function scorePhoneRecovery(phoneDigits) {
+    if (!phoneDigits) {
+        return 46;
+    }
+
+    const signals = [
+        phoneDigits.length >= 11 ? 34 : 18,
+        /^(\d)\1+$/.test(phoneDigits) ? -18 : 0,
+        /(0123|1234|0000|1111|2222|9999)$/.test(phoneDigits) ? -10 : 0,
+        phoneDigits.startsWith("00") ? -4 : 0
+    ];
+
+    return Math.max(0, Math.min(100, signals.reduce((sum, value) => sum + value, 20)));
+}
+
+function scoreUsernameReuse(username) {
+    if (!username) {
+        return 58;
+    }
+
+    const signals = [
+        username.length >= 10 ? 28 : 14,
+        /\d{4,}$/.test(username) ? -12 : 0,
+        /[_\-.]/.test(username) ? 6 : 0,
+        /^[a-z0-9._-]+$/i.test(username) ? 8 : 0
+    ];
+
+    return Math.max(0, Math.min(100, signals.reduce((sum, value) => sum + value, 22)));
+}
+
+function scoreContacts(contacts) {
+    if (!contacts) {
+        return 84;
+    }
+    if (contacts > 1500) {
+        return 34;
+    }
+    if (contacts > 750) {
+        return 52;
+    }
+    if (contacts > 300) {
+        return 68;
+    }
+    return 86;
+}
+
+function scoreDeviceSignals() {
+    const deviceSignals = [
+        navigator.hardwareConcurrency >= 4 ? 25 : 12,
+        navigator.deviceMemory >= 8 ? 24 : 12,
+        navigator.connection?.effectiveType === "4g" ? 18 : 10,
+        window.isSecureContext ? 24 : 8
+    ];
+
+    return deviceSignals.reduce((sum, value) => sum + value, 10);
+}
+
+function formatList(items) {
+    return `<ul>${items.map(item => `<li>${escapeHtml(item)}</li>`).join("")}</ul>`;
+}
+
+function checkEmailBreach() {
+    const email = $("emailInput").value.trim().toLowerCase();
+
+    if (!email || !email.includes("@")) {
+        alert("Enter a valid email address.");
+        return;
+    }
+
+    const provider = detectEmailProvider(email);
+    const localPart = email.split("@")[0];
+    const findings = [
+        `Provider profile: ${provider.label}.`,
+        localPart.includes("+")
+            ? "Alias-style addressing detected, which helps isolate service signups."
+            : "No alias marker detected. Consider service-specific aliases for high-risk signups.",
+        localPart.length >= 10
+            ? "Longer mailbox names are a little harder to guess and reuse."
+            : "Short mailbox names are easier to remember, but they are also easier to enumerate."
+    ];
+
+    $("emailBreachResult").innerHTML = formatList(findings);
+    $("emailBreachResult").classList.remove("hidden");
+}
+
+function checkPhoneBreach() {
+    const digits = $("phoneInput").value.replace(/\D/g, "");
+
+    if (!digits) {
+        alert("Enter a recovery phone number to analyze.");
+        return;
+    }
+
+    const findings = [
+        digits.length >= 11
+            ? "Country code detected, which reduces ambiguity during account recovery."
+            : "Add a country code if you use this number for recovery across services.",
+        /^(\d)\1+$/.test(digits)
+            ? "Repeated-number patterns are easy to spot and should not be reused as verification PINs."
+            : "The number does not look like a simple repeated pattern.",
+        /(0123|1234|0000|1111|2222|9999)$/.test(digits)
+            ? "Simple trailing sequences are easy to leak through screenshots or support workflows."
+            : "No obvious trailing sequence was detected."
+    ];
+
+    $("phoneBreachResult").innerHTML = formatList(findings);
+    $("phoneBreachResult").classList.remove("hidden");
+}
+
 async function checkPasswordBreach() {
-    let password = document.getElementById("passwordInput").value;
-    if (!password) { alert("Enter password"); return; }
-    
-    document.getElementById("passwordBreachResult").innerHTML = "🔍 Checking password...";
-    document.getElementById("passwordBreachResult").classList.remove("hidden");
-    
-    try {
-        let enc = new TextEncoder();
-        let hashBuffer = await crypto.subtle.digest("SHA-1", enc.encode(password));
-        let hashArray = Array.from(new Uint8Array(hashBuffer));
-        let hash = hashArray.map(b => b.toString(16).padStart(2, "0")).join("").toUpperCase();
-        
-        let prefix = hash.substring(0, 5);
-        let suffix = hash.substring(5);
-        
-        let response = await fetch(`https://api.pwnedpasswords.com/range/${prefix}`);
-        let text = await response.text();
-        
-        let result = `<strong>Password Security Check</strong><br>`;
-        
-        if (text.includes(suffix)) {
-            let lines = text.split('\n');
-            let count = 0;
-            lines.forEach(line => {
-                if (line.startsWith(suffix)) {
-                    count = parseInt(line.split(':')[1]);
-                }
-            });
-            result += `⚠️ <strong style="color:red;">COMPROMISED!</strong> Found ${count} times in breaches<br>`;
-            result += `This password has been seen in ${count} known breaches. <strong>CHANGE IMMEDIATELY</strong>`;
-        } else {
-            result += `✅ <strong style="color:green;">SECURE:</strong> Not found in known breaches<br>`;
-            result += `Strength: ${calculateStrength(password)}/100`;
-        }
-        
-        document.getElementById("passwordBreachResult").innerHTML = result;
-    } catch (err) {
-        document.getElementById("passwordBreachResult").innerHTML = `Error: ${err.message}`;
-    }
-}
+    const password = $("passwordInput").value;
 
-// Comprehensive security scan
-async function runComprehensiveScan() {
-    let findings = [];
-    let score = 0;
-    
-    let email = document.getElementById("emailInput").value.toLowerCase();
-    let password = document.getElementById("passwordInput").value;
-    let username = document.getElementById("usernameInput").value;
-    let contacts = parseInt(document.getElementById("contactInput").value) || 0;
-    
-    // Password analysis
-    let strength = calculateStrength(password);
-    score += strength;
-    if (strength < 40) findings.push("🔴 Weak password - minimum 16 chars with mixed types");
-    if (strength < 60) findings.push("🟡 Password strength could be improved");
-    if (strength > 80) findings.push("✅ Excellent password strength");
-    
-    // Check breach
-    let breached = await checkBreach(password);
-    if (breached) {
-        score -= 30;
-        findings.push("⚠️ Password seen in breach databases - CHANGE NOW");
-    } else {
-        findings.push("✅ Password not in known breaches");
+    if (!password) {
+        alert("Enter a password to test.");
+        return;
     }
-    
-    // Email analysis
-    if (email) {
-        if (email.includes("@")) {
-            findings.push("✅ Valid email format");
-        } else {
-            score -= 10;
-            findings.push("❌ Invalid email format");
-        }
+
+    const target = $("passwordBreachResult");
+    target.classList.remove("hidden");
+    target.innerHTML = "Checking password safely with k-anonymity...";
+
+    try {
+        const hashBuffer = await crypto.subtle.digest("SHA-1", encoder.encode(password));
+        const hash = Array.from(new Uint8Array(hashBuffer), value => value.toString(16).padStart(2, "0")).join("").toUpperCase();
+        const prefix = hash.slice(0, 5);
+        const suffix = hash.slice(5);
+        const response = await fetch(`https://api.pwnedpasswords.com/range/${prefix}`);
+        const text = await response.text();
+
+        const match = text
+            .split(/\r?\n/)
+            .map(line => line.split(":"))
+            .find(parts => parts[0] === suffix);
+
+        const strength = calculateStrength(password);
+        const findings = match
+            ? [
+                `Compromised password hash match found ${Number(match[1]).toLocaleString()} times.`,
+                "Rotate this password immediately anywhere it is still active.",
+                `Current local strength score: ${strength}/100.`
+            ]
+            : [
+                "No match found in the returned k-anonymity range data.",
+                `Current local strength score: ${strength}/100.`,
+                "Still keep this password unique to a single service."
+            ];
+
+        target.innerHTML = formatList(findings);
+    } catch (error) {
+        target.innerHTML = formatList([
+            "The password exposure check is unavailable right now.",
+            "The rest of the privacy audit still works locally."
+        ]);
     }
-    
-    // Username analysis
-    if (username && username.length >= 8) {
-        findings.push("✅ Good username length");
-    } else if (username) {
-        score -= 10;
-        findings.push("⚠️ Username too short - consider longer handle");
-    }
-    
-    // Contact security
-    if (contacts > 1000) {
-        score -= 20;
-        findings.push("⚠️ Large contact list increases exposure surface");
-    } else if (contacts > 500) {
-        score -= 10;
-        findings.push("⚠️ Consider limiting contact sharing");
-    }
-    
-    // Device security simulation
-    if (navigator.hardwareConcurrency >= 4) {
-        findings.push("✅ Device has good processing power");
-    }
-    
-    if (navigator.deviceMemory >= 8) {
-        findings.push("✅ Device has sufficient memory");
-    }
-    
-    if (navigator.connection?.effectiveType === "4g") {
-        findings.push("✅ Secure connection quality");
-    }
-    
-    score = Math.max(0, Math.min(100, score));
-    
-    createBreachTimeline();
-    animateWheel(score, findings);
-    document.getElementById("adviceText").innerHTML = `
-        <h3>🛡️ Security Recommendations:</h3>
-        <ul>
-            <li>Enable 2-Factor Authentication on all accounts</li>
-            <li>Use unique passwords for each service</li>
-            <li>Consider a password manager for complex passwords</li>
-            <li>Monitor email for breach notifications</li>
-            <li>Never share passwords or recovery codes</li>
-        </ul>
-    `;
 }
 
 async function checkBreach(password) {
-    if (!password) return false;
+    if (!password) {
+        return false;
+    }
+
     try {
-        let enc = new TextEncoder();
-        let hashBuffer = await crypto.subtle.digest("SHA-1", enc.encode(password));
-        let hashArray = Array.from(new Uint8Array(hashBuffer));
-        let hash = hashArray.map(b => b.toString(16).padStart(2, "0")).join("").toUpperCase();
-        
-        let prefix = hash.substring(0, 5);
-        let suffix = hash.substring(5);
-        
-        let res = await fetch(`https://api.pwnedpasswords.com/range/${prefix}`);
-        let txt = await res.text();
-        return txt.includes(suffix);
-    } catch (err) {
-        console.log("Breach check unavailable:", err);
+        const hashBuffer = await crypto.subtle.digest("SHA-1", encoder.encode(password));
+        const hash = Array.from(new Uint8Array(hashBuffer), value => value.toString(16).padStart(2, "0")).join("").toUpperCase();
+        const prefix = hash.slice(0, 5);
+        const suffix = hash.slice(5);
+        const response = await fetch(`https://api.pwnedpasswords.com/range/${prefix}`);
+        const text = await response.text();
+        return text.includes(suffix);
+    } catch (error) {
         return false;
     }
 }
 
-function createBreachTimeline() {
-    let timeline = document.getElementById("breachTimeline");
-    timeline.classList.remove("hidden");
+function buildPlaybooks(provider, recoveryProvider, passwordBreached) {
+    const cards = [];
+
+    if (provider.key === "google" || /google|gmail/i.test(recoveryProvider)) {
+        cards.push({
+            title: "Google recovery branch",
+            description: "Tighten sign-in, devices, and privacy checkpoints around your Google account.",
+            actions: [
+                "Run Security Checkup and review any recommended actions.",
+                "Check recent devices and sessions before reusing this address for recovery.",
+                "Move high-risk signups to aliases instead of the primary inbox."
+            ],
+            links: [
+                { label: "Security guidance", href: "https://support.google.com/accounts/answer/46526?hl=en-AU" },
+                { label: "Privacy Checkup", href: "https://support.google.com/accounts/answer/12629483?hl=en" }
+            ]
+        });
+    }
+
+    if (provider.key === "proton" || /proton/i.test(recoveryProvider)) {
+        cards.push({
+            title: "Proton alias branch",
+            description: "Use Proton aliases and separate identities so an exposed address does not map your whole account graph.",
+            actions: [
+                "Create dedicated aliases for new services and newsletters.",
+                "Retire any exposed alias instead of reusing it across sites.",
+                "Keep recovery channels separate from your main identity inbox."
+            ],
+            links: [
+                { label: "Proton Mail support", href: "https://proton.me/support/mail" },
+                { label: "Alias workflow", href: "https://proton.me/support/pass-send-email-alias" }
+            ]
+        });
+    }
+
+    cards.push({
+        title: "Exposure response branch",
+        description: "This app avoids hidden scraping and leak-dump mining. Focus on trusted checks and fast containment.",
+        actions: [
+            "Rotate any breached password before investigating secondary accounts.",
+            "Map primary email, aliases, backup inboxes, and phone recovery in one place.",
+            "Prioritize the five accounts with the largest blast radius: email, storage, banking, social, and work tools."
+        ],
+        links: []
+    });
+
+    if (passwordBreached) {
+        cards.push({
+            title: "Compromised secret branch",
+            description: "Your password check indicates exposure, so reset speed matters more than more scanning.",
+            actions: [
+                "Rotate the password everywhere it may be reused.",
+                "Invalidate sessions and app-specific tokens if the service allows it.",
+                "Move shared or family-critical accounts to stronger recovery channels."
+            ],
+            links: []
+        });
+    }
+
+    return cards;
+}
+
+function renderPlaybooks(cards) {
+    const grid = $("playbookGrid");
+    grid.innerHTML = cards.map(card => `
+        <article class="playbook-card">
+            <h3>${escapeHtml(card.title)}</h3>
+            <p>${escapeHtml(card.description)}</p>
+            ${formatList(card.actions)}
+            ${card.links.length ? `
+                <div class="playbook-links">
+                    ${card.links.map(link => `<a href="${link.href}" target="_blank" rel="noopener noreferrer">${escapeHtml(link.label)}</a>`).join("")}
+                </div>
+            ` : ""}
+        </article>
+    `).join("");
+}
+
+function renderTimeline(items) {
+    const timeline = $("breachTimeline");
     timeline.innerHTML = `
-        <h3>📊 Recent Industry Breaches</h3>
+        <h3>Fastest response sequence</h3>
         <div class="timeline">
-            <div class="timeline-item">
-                <strong>2024</strong> - Third-party API breach affected 2.4M users
-            </div>
-            <div class="timeline-item">
-                <strong>2023</strong> - Major cloud service exposure
-            </div>
-            <div class="timeline-item">
-                <strong>2022</strong> - Telecom provider breach
-            </div>
+            ${items.map(item => `
+                <div class="timeline-item">
+                    <strong>${escapeHtml(item.title)}</strong><br>
+                    ${escapeHtml(item.detail)}
+                </div>
+            `).join("")}
         </div>
     `;
+    timeline.classList.remove("hidden");
 }
 
-function animateWheel(score, findings) {
-    let circle = document.getElementById("progressCircle");
-    let radius = 85;
-    let circumference = 2 * Math.PI * radius;
+function animateWheel(score) {
+    const circle = $("progressCircle");
+    const circumference = 2 * Math.PI * 85;
     let current = 0;
 
-    let interval = setInterval(() => {
-        if (current >= score) { clearInterval(interval); return; }
-        current++;
-        circle.style.strokeDashoffset = circumference - (current / 100) * circumference;
+    const interval = setInterval(() => {
+        current += 1;
+        const progress = Math.min(current, score);
+        circle.style.strokeDashoffset = circumference - (progress / 100) * circumference;
+        $("scoreText").textContent = String(progress);
 
-        if (current > 60) circle.style.stroke = "red";
-        else if (current > 30) circle.style.stroke = "orange";
-        else circle.style.stroke = "green";
+        if (progress >= score) {
+            clearInterval(interval);
+        }
 
-        document.getElementById("scoreText").innerText = current;
-    }, 10);
-
-    document.getElementById("resultText").innerText =
-        findings.length ? findings.join(" • ") : "No major exposure detected.";
+        if (progress >= 75) {
+            circle.style.stroke = "#34d399";
+        } else if (progress >= 45) {
+            circle.style.stroke = "#f59e0b";
+        } else {
+            circle.style.stroke = "#f97316";
+        }
+    }, 12);
 }
 
-/* ================= SECURE CHAT ================= */
+async function runComprehensiveScan() {
+    const email = $("emailInput").value.trim().toLowerCase();
+    const phoneDigits = $("phoneInput").value.replace(/\D/g, "");
+    const password = $("passwordInput").value;
+    const username = $("usernameInput").value.trim();
+    const contacts = Number($("contactInput").value) || 0;
+    const recoveryProvider = $("recoveryProviderInput").value.trim();
 
-let peer = null;
-let currentConnection = null;
-let pendingConnection = null;
-const MAX_CONNECT_RETRIES = 3;
-const AUTO_RECONNECT_DELAY_MS = 900;
+    const provider = detectEmailProvider(email);
+    const passwordStrength = calculateStrength(password);
+    const passwordBreached = await checkBreach(password);
 
-// STUN-only fails on many mobile/carrier NATs. TURN relay provides reliable cross-device fallback.
-const DEFAULT_ICE_SERVERS = [
-    { urls: 'stun:stun.l.google.com:19302' },
-    { urls: 'stun:stun1.l.google.com:19302' },
-    { urls: 'stun:openrelay.metered.ca:80' },
-    {
-        urls: [
-            'turn:openrelay.metered.ca:80',
-            'turn:openrelay.metered.ca:443',
-            'turn:openrelay.metered.ca:443?transport=tcp'
-        ],
-        username: 'openrelayproject',
-        credential: 'openrelayproject'
-    }
-];
+    const metrics = [
+        {
+            label: "Password quality",
+            weight: 28,
+            score: password ? passwordStrength : 38,
+            summary: password ? `${passwordStrength}/100 local strength score.` : "No password entered for review."
+        },
+        {
+            label: "Breach resistance",
+            weight: 20,
+            score: password ? (passwordBreached ? 18 : 88) : 42,
+            summary: password ? (passwordBreached ? "Password appeared in breach data." : "No pwned-password match found.") : "Live breach check skipped."
+        },
+        {
+            label: "Email compartmentalization",
+            weight: 16,
+            score: email ? provider.score : 42,
+            summary: email ? `${provider.label} with ${email.includes("+") ? "alias-style addressing" : "a primary-style address"}.` : "No primary email entered."
+        },
+        {
+            label: "Recovery channel hygiene",
+            weight: 14,
+            score: scorePhoneRecovery(phoneDigits),
+            summary: phoneDigits ? "Phone recovery channel reviewed locally." : "No recovery phone reviewed."
+        },
+        {
+            label: "Username reuse pressure",
+            weight: 10,
+            score: scoreUsernameReuse(username),
+            summary: username ? "Handle reviewed for simple reuse patterns." : "No username entered."
+        },
+        {
+            label: "Contact blast radius",
+            weight: 12,
+            score: scoreContacts(contacts),
+            summary: contacts ? `${contacts} saved contacts entered.` : "No contact count entered."
+        },
+        {
+            label: "Device readiness",
+            weight: 10,
+            score: scoreDeviceSignals(),
+            summary: "Browser, device, and connection signals reviewed locally."
+        }
+    ];
+
+    const totalWeight = metrics.reduce((sum, metric) => sum + metric.weight, 0);
+    const totalScore = Math.round(metrics.reduce((sum, metric) => sum + metric.score * metric.weight, 0) / totalWeight);
+    const findings = metrics.map(metric => `${metric.label}: ${metric.summary}`);
+    const nextSteps = [
+        passwordBreached ? "Rotate the tested password before continuing to lower-priority accounts." : "Keep the tested password unique even if it looked healthy.",
+        email.includes("+") ? "Keep alias-style addressing for new signups." : "Start using aliases or service-specific addresses for risky signups.",
+        contacts > 750 ? "Reduce over-shared address books where possible." : "Keep high-value contacts compartmentalized from public-facing apps.",
+        recoveryProvider ? `Review the backup mailbox or provider you listed: ${recoveryProvider}.` : "Add and audit a dedicated recovery channel that is different from the primary inbox."
+    ];
+
+    $("resultText").classList.remove("hidden");
+    $("resultText").innerHTML = formatList(findings);
+
+    $("adviceText").classList.remove("hidden");
+    $("adviceText").innerHTML = `
+        <h3>Best next actions</h3>
+        ${formatList(nextSteps)}
+    `;
+
+    renderPlaybooks(buildPlaybooks(provider, recoveryProvider, passwordBreached));
+    renderTimeline([
+        { title: "Lock the primary account", detail: "Review active sessions, recovery channels, and outstanding alerts first." },
+        { title: "Rotate exposed secrets", detail: passwordBreached ? "Reset the tested password everywhere it may be reused." : "Confirm each important account has a unique secret." },
+        { title: "Compartmentalize future signups", detail: provider.key === "proton" ? "Use Proton aliases to isolate new services." : "Use aliases and separate recovery paths for risky services." }
+    ]);
+    animateWheel(totalScore);
+}
 
 function getCustomIceServers() {
     try {
-        const raw = localStorage.getItem('svp_turn_config');
-        if (!raw) return null;
-        const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed) && parsed.length) {
-            return parsed;
-        }
-    } catch (err) {
-        console.warn("Invalid svp_turn_config JSON:", err);
+        const raw = localStorage.getItem("svp_turn_config");
+        const parsed = raw ? JSON.parse(raw) : null;
+        return Array.isArray(parsed) && parsed.length ? parsed : null;
+    } catch (error) {
+        return null;
     }
-    return null;
 }
 
 function getIceServers() {
@@ -541,500 +1228,602 @@ function getIceServers() {
 }
 
 function warnIfInsecureContext() {
-    const isLocal = /^(localhost|127\\.0\\.0\\.1)$/.test(window.location.hostname);
-    if (!window.isSecureContext && !isLocal) {
-        appendSystemMessage("Insecure HTTP detected. Use HTTPS for reliable audio/video on iOS/Android.");
+    const isLocalhost = /^(localhost|127\.0\.0\.1)$/.test(window.location.hostname);
+    if (!window.isSecureContext && !isLocalhost) {
+        appendSystemMessage("Use HTTPS for the most reliable voice and video experience.");
     }
 }
 
 function initPeer() {
     warnIfInsecureContext();
 
-    // Initialize PeerJS to generate our unique ID
-    peer = new Peer({
-        secure: window.location.protocol === 'https:',
-        debug: 1,
+    state.peer = new Peer({
+        secure: window.location.protocol === "https:",
+        debug: 0,
         pingInterval: 20000,
         config: {
             iceServers: getIceServers(),
-            iceTransportPolicy: 'all'
+            iceTransportPolicy: "all"
         }
     });
 
-    peer.on('open', (id) => {
-        document.getElementById('myPeerId').value = id;
-        if (!currentConnection) {
-            updateConnectionStatus("Waiting for connection...");
-        }
-        appendSystemMessage("Peer ready. Cross-network relay is enabled.");
+    state.peer.on("open", id => {
+        $("myPeerId").value = id;
+        updateConnectionStatus("Waiting for connection...");
+        appendSystemMessage("Peer ready.");
 
-        // Check for auto-connect invite link
-        const urlParams = new URLSearchParams(window.location.search);
-        const connectToId = urlParams.get('connect');
-        if (connectToId) {
-            document.getElementById('connectId').value = connectToId;
-            showTab('chat');
+        const params = new URLSearchParams(window.location.search);
+        const connectId = params.get("connect");
+        const tab = params.get("tab");
+
+        if (tab === "chat") {
+            showTab("chat");
+        }
+
+        if (connectId) {
+            $("connectId").value = connectId;
+            showTab("chat");
             setTimeout(() => connectToPeer(), 500);
         }
     });
 
-    peer.on('connection', (conn) => {
-        if (currentConnection) {
-            conn.close(); // Only allow one connection at a time
+    state.peer.on("connection", connection => {
+        if (state.currentConnection) {
+            connection.close();
             return;
         }
-        setupConnectionStatus(conn, conn.peer, 1);
+
+        setupConnectionHandlers(connection, connection.peer, 1);
     });
 
-    peer.on('error', (err) => {
-        console.error("PeerJS error:", err);
-        if (err.type === 'peer-unavailable') {
-            appendSystemMessage("Peer unavailable. Ask for a fresh ID and ensure the other device keeps this tab open.");
-            updateConnectionStatus("Peer unavailable");
-        } else if (err.type === 'network' || err.type === 'server-error' || err.type === 'socket-error') {
-            appendSystemMessage("Signaling network issue detected. Reconnecting...");
-            updateConnectionStatus("Reconnecting...");
-            if (peer && peer.disconnected) {
-                try {
-                    peer.reconnect();
-                } catch (e) {
-                    console.error("Peer reconnect failed:", e);
-                }
-            }
-        } else {
-            appendSystemMessage("Error: " + err.type);
-            updateConnectionStatus("Connection Error");
-        }
-    });
-
-    peer.on('disconnected', () => {
-        appendSystemMessage("Connection to signaling server dropped. Attempting reconnect...");
-        updateConnectionStatus("Reconnecting...");
-        try {
-            peer.reconnect();
-        } catch (err) {
-            console.error("Peer reconnect error:", err);
-            setTimeout(() => initPeer(), AUTO_RECONNECT_DELAY_MS);
-        }
-    });
-
-    peer.on('close', () => {
-        appendSystemMessage("Peer session closed. Reinitializing...");
-        updateConnectionStatus("Reinitializing...");
-        setTimeout(() => initPeer(), AUTO_RECONNECT_DELAY_MS);
-    });
-
-    peer.on('call', (call) => {
-        if (currentCall) {
+    state.peer.on("call", call => {
+        if (state.currentCall) {
             call.close();
             return;
         }
         answerCall(call);
     });
+
+    state.peer.on("error", error => {
+        if (error.type === "peer-unavailable") {
+            updateConnectionStatus("Peer unavailable", "warning");
+            appendSystemMessage("Peer unavailable. Ask for a fresh invite link or ID.");
+            return;
+        }
+
+        if (["network", "server-error", "socket-error"].includes(error.type)) {
+            updateConnectionStatus("Reconnecting…", "warning");
+            appendSystemMessage("Network issue detected. Reconnecting to signaling service.");
+            if (state.peer?.disconnected) {
+                state.peer.reconnect();
+            }
+            return;
+        }
+
+        updateConnectionStatus("Connection error", "error");
+        appendSystemMessage(`Peer error: ${error.type || "unknown"}`);
+    });
+
+    state.peer.on("disconnected", () => {
+        updateConnectionStatus("Reconnecting…", "warning");
+        setTimeout(() => {
+            try {
+                state.peer.reconnect();
+            } catch (error) {
+                initPeer();
+            }
+        }, AUTO_RECONNECT_DELAY_MS);
+    });
+
+    state.peer.on("close", () => {
+        updateConnectionStatus("Restarting peer…", "warning");
+        setTimeout(() => initPeer(), AUTO_RECONNECT_DELAY_MS);
+    });
+}
+
+function updateConnectionStatus(message, tone = "info") {
+    const status = $("connectionStatus");
+    status.textContent = message;
+    status.className = "status-msg";
+    if (tone === "success" || /connected/i.test(message)) {
+        status.classList.add("connected");
+    } else if (tone === "warning") {
+        status.classList.add("warning");
+    } else if (tone === "error") {
+        status.classList.add("error");
+    }
 }
 
 function connectToPeer() {
-    let connectId = document.getElementById("connectId").value.trim();
+    const connectId = $("connectId").value.trim();
+
     if (!connectId) {
-        alert("Please enter an ID to connect.");
+        alert("Paste a peer ID or open an invite link.");
         return;
     }
-    if (connectId === document.getElementById('myPeerId').value) {
-        alert("Cannot connect to yourself.");
+
+    if (connectId === $("myPeerId").value) {
+        alert("You cannot connect to yourself.");
         return;
     }
+
     attemptPeerConnect(connectId, 1);
 }
 
 function attemptPeerConnect(connectId, attempt) {
-    if (!peer || peer.destroyed) {
+    if (!state.peer || state.peer.destroyed) {
         initPeer();
-        updateConnectionStatus("Reinitializing peer...");
+        updateConnectionStatus("Preparing peer…", "warning");
         setTimeout(() => attemptPeerConnect(connectId, attempt), AUTO_RECONNECT_DELAY_MS);
         return;
     }
 
-    if (peer.disconnected) {
-        updateConnectionStatus("Reconnecting to server...");
+    if (state.peer.disconnected) {
+        updateConnectionStatus("Reconnecting peer…", "warning");
+        state.peer.reconnect();
+        setTimeout(() => attemptPeerConnect(connectId, attempt), AUTO_RECONNECT_DELAY_MS);
+        return;
+    }
+
+    if (state.currentConnection) {
+        state.currentConnection.close();
+    }
+
+    if (state.pendingConnection) {
         try {
-            peer.reconnect();
-        } catch (err) {
-            console.error("Reconnect before connect failed:", err);
+            state.pendingConnection.close();
+        } catch (error) {
+            void error;
         }
-        setTimeout(() => attemptPeerConnect(connectId, attempt), AUTO_RECONNECT_DELAY_MS);
-        return;
     }
 
-    if (!peer.id) {
-        updateConnectionStatus("Preparing secure ID...");
-        setTimeout(() => attemptPeerConnect(connectId, attempt), 700);
-        return;
-    }
-
-    if (currentConnection) {
-        currentConnection.close();
-    }
-    if (pendingConnection) {
-        try {
-            pendingConnection.close();
-        } catch (_) {}
-    }
-
-    updateConnectionStatus(attempt > 1 ? `Retrying connection (${attempt}/${MAX_CONNECT_RETRIES})...` : "Connecting...");
-    let conn = peer.connect(connectId);
-    pendingConnection = conn;
-    setupConnectionStatus(conn, connectId, attempt);
+    updateConnectionStatus(attempt > 1 ? `Retrying connection (${attempt}/${MAX_CONNECT_RETRIES})…` : "Connecting…", "warning");
+    const connection = state.peer.connect(connectId, { reliable: true });
+    state.pendingConnection = connection;
+    setupConnectionHandlers(connection, connectId, attempt);
 }
 
-function setupConnectionStatus(conn, connectId, attempt) {
-
-    const onConnectionOpen = () => {
-        pendingConnection = null;
-        currentConnection = conn;
-        updateConnectionStatus("Connected to peer!");
-        appendSystemMessage("Secure connection established.");
-        document.getElementById("connectId").value = "";
-        document.getElementById("callControls").classList.remove('hidden');
+function setupConnectionHandlers(connection, peerId, attempt) {
+    const onOpen = () => {
+        state.pendingConnection = null;
+        state.currentConnection = connection;
+        updateConnectionStatus("Connected to peer", "success");
+        $("connectId").value = "";
+        $("callControls").classList.remove("hidden");
+        appendSystemMessage("Secure channel established.");
+        clearInviteSearchParams();
     };
 
-    conn.on('open', onConnectionOpen);
+    connection.on("open", onOpen);
 
-    // Fallback for receiver if it's already open
-    if (conn.open) {
-        onConnectionOpen();
-    }
-
-    conn.on('error', (err) => {
-        console.error("Connection error:", err);
-
-        if (pendingConnection === conn) {
-            pendingConnection = null;
-        }
-        if (currentConnection === conn) {
-            currentConnection = null;
-        }
-
-        if (err.type === 'peer-unavailable') {
-            if (attempt < MAX_CONNECT_RETRIES) {
-                appendSystemMessage(`Peer unavailable. Retrying ${attempt + 1}/${MAX_CONNECT_RETRIES}...`);
-                setTimeout(() => attemptPeerConnect(connectId, attempt + 1), 1200);
-                return;
-            }
-            appendSystemMessage("Peer unavailable after retries. Ask for a fresh ID and keep both tabs open.");
-            updateConnectionStatus("Peer unavailable");
+    connection.on("data", data => {
+        if (typeof data === "string") {
+            appendMessage({ content: data, timestamp: Date.now() }, "peer");
             return;
         }
 
-        appendSystemMessage("Connection failed: " + (err.type || "unknown"));
-        updateConnectionStatus("Connection failed");
-    });
+        if (data.type === "text") {
+            appendMessage(data, "peer");
+            return;
+        }
 
-    conn.on('data', (data) => {
-        if (typeof data === 'string') {
-            appendMessage(data, 'peer');
-        } else if (data.type === 'text') {
-            appendMessage(data.content, 'peer');
-        } else if (data.type === 'media') {
+        if (data.type === "media") {
             renderIncomingMedia(data);
-        } else if (data.type === 'call-info') {
-            appendSystemMessage(`${data.callType || "Call"} incoming...`);
-        } else if (data.type === 'call-error') {
-            appendSystemMessage(`Call failed on peer device: ${data.reason || "unknown reason"}`);
-        }
-    });
-
-    conn.on('close', () => {
-        if (pendingConnection === conn) {
-            pendingConnection = null;
-            if (!currentConnection) {
-                updateConnectionStatus("Connection closed.");
-            }
             return;
         }
 
-        updateConnectionStatus("Connection closed.");
-        appendSystemMessage("Peer disconnected.");
-        document.getElementById("callControls").classList.add('hidden');
-        endCall();
-        if (currentConnection === conn) {
-            currentConnection = null;
+        if (data.type === "call-info") {
+            appendSystemMessage(`${data.callType} incoming…`);
+            return;
         }
+
+        if (data.type === "call-error") {
+            appendSystemMessage(`Peer call issue: ${data.reason}`);
+        }
+    });
+
+    connection.on("error", error => {
+        if (state.pendingConnection === connection) {
+            state.pendingConnection = null;
+        }
+
+        if (error.type === "peer-unavailable" && attempt < MAX_CONNECT_RETRIES) {
+            setTimeout(() => attemptPeerConnect(peerId, attempt + 1), 1200);
+            return;
+        }
+
+        updateConnectionStatus("Connection failed", "error");
+        appendSystemMessage(`Connection failed: ${error.type || "unknown error"}`);
+    });
+
+    connection.on("close", () => {
+        if (state.currentConnection === connection) {
+            state.currentConnection = null;
+        }
+        if (state.pendingConnection === connection) {
+            state.pendingConnection = null;
+        }
+
+        $("callControls").classList.add("hidden");
+        updateConnectionStatus("Connection closed");
+        appendSystemMessage("Peer disconnected.");
+        endCall(false);
     });
 }
 
-function getMediaErrorHelp(err) {
-    const name = err?.name || "";
-    const msg = err?.message || "";
+function clearInviteSearchParams() {
+    const url = new URL(window.location.href);
+    if (!url.searchParams.has("connect") && !url.searchParams.has("tab")) {
+        return;
+    }
 
-    if (name === "NotAllowedError" || name === "PermissionDeniedError") {
-        return "Permission denied. Allow Microphone/Camera in browser site settings for this page, then retry.";
+    url.searchParams.delete("connect");
+    url.searchParams.delete("tab");
+    history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
+}
+
+function copyMyId() {
+    const id = $("myPeerId").value.trim();
+    if (!id) {
+        return;
     }
-    if (name === "NotFoundError" || name === "DevicesNotFoundError") {
-        return "Requested device not found. Connect/enable mic/camera, or switch to audio-only call.";
+
+    copyToClipboard(id, "Peer ID copied.");
+}
+
+function generateInviteLink() {
+    const id = $("myPeerId").value.trim();
+
+    if (!id) {
+        alert("Your peer ID is still being generated.");
+        return;
     }
-    if (name === "NotReadableError" || name === "TrackStartError") {
-        return "Device is busy (used by another app/tab). Close other apps using mic/camera and retry.";
+
+    const inviteLink = buildAppUrl({}, { tab: "chat", connect: id });
+
+    openShareModal({
+        title: "Share secure chat invite",
+        description: "This invite link opens the app on the chat tab and can auto-fill the peer connection ID.",
+        link: inviteLink,
+        text: `Join me in Secure Vault Pro chat with this invite link:\n${inviteLink}`,
+        hint: "Open on the recipient device and the chat tab will be ready to connect."
+    });
+}
+
+function appendMessage(message, type) {
+    const chatMessages = $("chatMessages");
+    const wrapper = document.createElement("div");
+    wrapper.className = `chat-msg ${type}`;
+
+    if (type === "system") {
+        wrapper.textContent = message.content || message;
+        chatMessages.appendChild(wrapper);
+        scrollChatToBottom();
+        return wrapper;
     }
-    if (name === "OverconstrainedError" || name === "ConstraintNotSatisfiedError") {
-        return "This device can't satisfy requested media quality. Retrying with fallback is recommended.";
+
+    const body = document.createElement("div");
+    body.className = "chat-msg-body";
+    body.textContent = message.content;
+
+    const meta = document.createElement("div");
+    meta.className = "chat-msg-meta";
+    const time = new Date(message.timestamp || Date.now()).toLocaleTimeString([], {
+        hour: "2-digit",
+        minute: "2-digit"
+    });
+    meta.innerHTML = `<span>${time}</span>`;
+
+    if (message.expiresIn) {
+        const countdown = document.createElement("span");
+        countdown.className = "countdown-pill";
+        meta.appendChild(countdown);
+        scheduleMessageExpiry(wrapper, countdown, message.expiresIn);
     }
-    if (msg) return msg;
-    return "Call media could not be started on this device.";
+
+    wrapper.appendChild(body);
+    wrapper.appendChild(meta);
+    chatMessages.appendChild(wrapper);
+    scrollChatToBottom();
+    return wrapper;
+}
+
+function appendSystemMessage(content) {
+    appendMessage({ content, timestamp: Date.now() }, "system");
+}
+
+function scheduleMessageExpiry(messageElement, countdownElement, expiresIn) {
+    const expiresAt = Date.now() + expiresIn;
+    const timerKey = Symbol("expiry");
+
+    const update = () => {
+        const remaining = Math.max(0, Math.ceil((expiresAt - Date.now()) / 1000));
+
+        if (remaining <= 0) {
+            countdownElement.textContent = "Expired";
+            messageElement.innerHTML = `<span class="expired-msg">Message self-destructed.</span>`;
+            const timer = state.messageTimers.get(timerKey);
+            if (timer) {
+                clearInterval(timer);
+            }
+            state.messageTimers.delete(timerKey);
+            return;
+        }
+
+        countdownElement.textContent = `Self-destructs in ${remaining}s`;
+    };
+
+    update();
+    const interval = setInterval(update, 1000);
+    state.messageTimers.set(timerKey, interval);
+}
+
+function scrollChatToBottom() {
+    const chatMessages = $("chatMessages");
+    requestAnimationFrame(() => {
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+    });
+}
+
+function updateChatComposerHeight() {
+    const input = $("chatInput");
+    input.style.height = "auto";
+    input.style.height = `${Math.min(input.scrollHeight, 160)}px`;
+}
+
+function getSelfDestructMs() {
+    if (!$("autoDestruct").checked) {
+        return 0;
+    }
+
+    const seconds = Math.max(5, Math.min(300, Number($("destructTimer").value) || 60));
+    return seconds * 1000;
 }
 
 function sendChatMessage() {
-    if (!currentConnection || !currentConnection.open) {
-        alert("Not connected to a peer. Please connect first.");
+    if (!state.currentConnection?.open) {
+        alert("Connect to a peer first.");
         return;
     }
-    let input = document.getElementById('chatInput');
-    let msg = input.value.trim();
-    if (!msg) return;
 
-    currentConnection.send({ type: 'text', content: msg });
-    appendMessage(msg, 'self');
-    input.value = '';
+    const input = $("chatInput");
+    const content = input.value.trim();
+
+    if (!content) {
+        return;
+    }
+
+    const message = {
+        type: "text",
+        content,
+        timestamp: Date.now(),
+        expiresIn: getSelfDestructMs()
+    };
+
+    state.currentConnection.send(message);
+    appendMessage(message, "self");
+    input.value = "";
+    updateChatComposerHeight();
 }
 
 function handleChatKeyPress(event) {
-    if (event.key === 'Enter') {
+    if (event.key === "Enter" && !event.shiftKey) {
+        event.preventDefault();
         sendChatMessage();
     }
 }
 
-function copyMyId() {
-    let myId = document.getElementById('myPeerId').value;
-    if (myId) {
-        navigator.clipboard.writeText(myId);
-        alert("ID copied to clipboard!");
-    }
-}
-
-function appendMessage(text, type) {
-    let msgDiv = document.createElement("div");
-    msgDiv.className = "chat-msg " + type;
-    msgDiv.innerText = text;
-
-    let chatBox = document.getElementById("chatMessages");
-    chatBox.appendChild(msgDiv);
-    chatBox.scrollTop = chatBox.scrollHeight;
-}
-
-function appendSystemMessage(text) {
-    appendMessage(text, 'system');
-}
-
-function updateConnectionStatus(msg) {
-    let el = document.getElementById("connectionStatus");
-    el.innerText = msg;
-    if (msg.includes("Connected")) {
-        el.classList.add("connected");
-    } else {
-        el.classList.remove("connected");
-    }
-}
-
-// Initialize Peer automatically when the script loads
-async function generateInviteLink() {
-    let myId = document.getElementById('myPeerId').value;
-    if (!myId) return;
-    let secureLink = window.location.origin + window.location.pathname + "?connect=" + myId;
-    let inviteText = `\u{1F510} Private chat. Zero signup. Full privacy.\n\n\u{1F449} Join instantly:\n${secureLink}\n\n\u{1F4AC} Chat | \u{1F399}\u{FE0F} Voice | \u{1F3A5} Video\n\u{26A1} Fast. Secure. Direct.`;
-    try {
-        if (navigator.share) {
-            await navigator.share({
-                title: "Secure Vault Private Chat",
-                text: inviteText
-            });
-            appendSystemMessage("Invite shared.");
-            return;
-        }
-    } catch (err) {
-        // If user cancels native share, continue to clipboard fallback.
-        console.warn("Share API skipped:", err);
-    }
-
-    try {
-        await navigator.clipboard.writeText(inviteText);
-        alert("Invite message copied with secure link.");
-    } catch (err) {
-        console.warn("Clipboard copy failed:", err);
-        window.prompt("Copy this invite message:", inviteText);
-    }
+function toggleAdvancedControls() {
+    $("advancedCallControls").classList.toggle("hidden");
 }
 
 async function sendMediaFile() {
-    if (!currentConnection || !currentConnection.open) {
-        alert("Not connected to a peer.");
-        return;
-    }
-    let fileInput = document.getElementById('mediaInput');
-    let file = fileInput.files[0];
-    if (!file) return;
-
-    if (file.size > 50 * 1024 * 1024) {
-        alert("File too large. Limit is 50MB.");
-        fileInput.value = "";
+    if (!state.currentConnection?.open) {
+        alert("Connect to a peer first.");
         return;
     }
 
-    let buffer = await file.arrayBuffer();
-    currentConnection.send({
-        type: 'media',
-        mime: file.type,
+    const input = $("mediaInput");
+    const file = input.files[0];
+
+    if (!file) {
+        return;
+    }
+
+    if (file.size > MAX_CHAT_ATTACHMENT_SIZE) {
+        alert("The secure chat attachment limit is 50 MB.");
+        input.value = "";
+        return;
+    }
+
+    const buffer = await file.arrayBuffer();
+    const payload = {
+        type: "media",
+        mime: file.type || "application/octet-stream",
         name: file.name,
-        buffer: buffer
-    });
+        buffer,
+        expiresIn: getSelfDestructMs()
+    };
 
-    appendMessage("📎 Sent media: " + file.name, 'self');
-    fileInput.value = "";
+    state.currentConnection.send(payload);
+    appendMessage(
+        {
+            content: `Sent attachment: ${file.name}`,
+            timestamp: Date.now(),
+            expiresIn: payload.expiresIn
+        },
+        "self"
+    );
+    input.value = "";
 }
 
-function renderIncomingMedia(data) {
-    let msgDiv = document.createElement("div");
-    msgDiv.className = "chat-msg peer media-message-container";
-    msgDiv.oncontextmenu = (e) => { e.preventDefault(); return false; };
-    msgDiv.ondragstart = (e) => { e.preventDefault(); return false; };
+function renderIncomingMedia(payload) {
+    const chatMessages = $("chatMessages");
+    const wrapper = document.createElement("div");
+    wrapper.className = "chat-msg peer";
 
-    let blob = new Blob([data.buffer], { type: data.mime });
-    let url = URL.createObjectURL(blob);
+    const blob = new Blob([payload.buffer], { type: payload.mime });
+    const objectUrl = URL.createObjectURL(blob);
 
-    let mediaEl;
-    if (data.mime.startsWith("image/")) {
-        mediaEl = document.createElement("img");
-        mediaEl.src = url;
-    } else if (data.mime.startsWith("video/")) {
-        mediaEl = document.createElement("video");
-        mediaEl.src = url;
-        mediaEl.loop = true;
-    } else if (data.mime.startsWith("audio/")) {
-        mediaEl = document.createElement("audio");
-        mediaEl.src = url;
-    } else {
-        appendMessage("📎 Received file: " + data.name + " (Unsupported media type)", "peer");
-        return;
-    }
-
-    let overlay = document.createElement("div");
-    overlay.className = "media-overlay";
-    overlay.innerText = "🔒 Hold to View\n(10s max)";
-
-    msgDiv.appendChild(mediaEl);
-    msgDiv.appendChild(overlay);
-
-    let chatBox = document.getElementById("chatMessages");
-    chatBox.appendChild(msgDiv);
-    chatBox.scrollTop = chatBox.scrollHeight;
-
-    let viewTimeout;
-    let isRevealed = false;
-
-    const startViewing = (e) => {
-        if (e.type !== "touchstart") e.preventDefault();
-        if (isRevealed) return;
-        isRevealed = true;
-        msgDiv.classList.add("revealed");
-
-        if (mediaEl.tagName === 'VIDEO' || mediaEl.tagName === 'AUDIO') {
-            mediaEl.play().catch(e => console.log("Autoplay prevented:", e));
+    if (payload.mime.startsWith("image/") || payload.mime.startsWith("video/")) {
+        wrapper.classList.add("media-message-container");
+        const media = document.createElement(payload.mime.startsWith("image/") ? "img" : "video");
+        media.src = objectUrl;
+        if (media.tagName === "VIDEO") {
+            media.controls = true;
         }
 
-        viewTimeout = setTimeout(() => {
-            destroyMedia();
-        }, 10000); // 10s view max 
-    };
+        const overlay = document.createElement("div");
+        overlay.className = "media-overlay";
+        overlay.textContent = "Hold to reveal";
 
-    const stopViewing = (e) => {
-        if (!isRevealed) return;
-        destroyMedia();
-    };
+        const meta = document.createElement("div");
+        meta.className = "chat-msg-meta";
+        meta.innerHTML = `<span>${escapeHtml(payload.name)}</span>`;
 
-    const destroyMedia = () => {
-        clearTimeout(viewTimeout);
-        URL.revokeObjectURL(url);
-        msgDiv.innerHTML = "<span style='color:#ef4444; font-style:italic; font-size:12px;'>Media permanently destroyed</span>";
-        msgDiv.classList.remove("media-message-container");
-        window.removeEventListener('mouseup', stopViewing);
-        window.removeEventListener('touchend', stopViewing);
-    };
+        if (payload.expiresIn) {
+            const countdown = document.createElement("span");
+            countdown.className = "countdown-pill";
+            meta.appendChild(countdown);
+            scheduleMessageExpiry(wrapper, countdown, payload.expiresIn);
+        }
 
-    overlay.addEventListener('mousedown', startViewing);
-    overlay.addEventListener('touchstart', startViewing);
-    window.addEventListener('mouseup', stopViewing);
-    window.addEventListener('touchend', stopViewing);
+        const reveal = event => {
+            if (event.type !== "touchstart") {
+                event.preventDefault();
+            }
+            wrapper.classList.add("revealed");
+            if (media.tagName === "VIDEO") {
+                media.play().catch(() => undefined);
+            }
+        };
+
+        const hide = () => wrapper.classList.remove("revealed");
+
+        overlay.addEventListener("mousedown", reveal);
+        overlay.addEventListener("touchstart", reveal, { passive: true });
+        window.addEventListener("mouseup", hide, { once: true });
+        window.addEventListener("touchend", hide, { once: true });
+
+        wrapper.appendChild(media);
+        wrapper.appendChild(overlay);
+        wrapper.appendChild(meta);
+    } else {
+        const body = document.createElement("div");
+        body.className = "chat-msg-body";
+        const link = document.createElement("a");
+        link.href = objectUrl;
+        link.download = payload.name;
+        link.textContent = `Download ${payload.name}`;
+        body.appendChild(link);
+
+        const meta = document.createElement("div");
+        meta.className = "chat-msg-meta";
+        meta.innerHTML = "<span>Attachment</span>";
+
+        if (payload.expiresIn) {
+            const countdown = document.createElement("span");
+            countdown.className = "countdown-pill";
+            meta.appendChild(countdown);
+            scheduleMessageExpiry(wrapper, countdown, payload.expiresIn);
+        }
+
+        wrapper.appendChild(body);
+        wrapper.appendChild(meta);
+    }
+
+    chatMessages.appendChild(wrapper);
+    scrollChatToBottom();
 }
 
-/* ================= ENHANCED AUDIO / VIDEO CALLS WITH RECORDING ================= */
+function getMediaErrorHelp(error) {
+    const name = error?.name || "";
+    const message = error?.message || "";
 
-let localStream = null;
-let currentCall = null;
-let mediaRecorder = null;
-let recordedChunks = [];
+    if (name === "NotAllowedError" || name === "PermissionDeniedError") {
+        return "Microphone or camera permission was denied. Allow access in browser site settings and try again.";
+    }
 
+    if (name === "NotFoundError" || name === "DevicesNotFoundError") {
+        return "No usable microphone or camera was found.";
+    }
+
+    if (name === "NotReadableError" || name === "TrackStartError") {
+        return "The microphone or camera is busy in another app or tab.";
+    }
+
+    if (name === "OverconstrainedError" || name === "ConstraintNotSatisfiedError") {
+        return "The device could not satisfy the requested media quality.";
+    }
+
+    return message || "Media access failed on this device.";
+}
 
 async function getCallMediaWithFallback(preferVideo) {
-    const attempts = [];
-
-    if (preferVideo) {
-        attempts.push({
-            label: "video+audio",
-            constraints: {
-                video: { width: { ideal: 1280 }, height: { ideal: 720 } },
-                audio: { noiseSuppression: true, echoCancellation: true, autoGainControl: true }
+    const attempts = preferVideo
+        ? [
+            {
+                label: "video+audio",
+                constraints: {
+                    video: {
+                        width: { ideal: 960 },
+                        height: { ideal: 540 },
+                        frameRate: { ideal: 24, max: 30 },
+                        facingMode: "user"
+                    },
+                    audio: {
+                        noiseSuppression: true,
+                        echoCancellation: true,
+                        autoGainControl: true
+                    }
+                }
+            },
+            {
+                label: "audio-only",
+                constraints: {
+                    video: false,
+                    audio: {
+                        noiseSuppression: true,
+                        echoCancellation: true,
+                        autoGainControl: true
+                    }
+                }
             }
-        });
-        attempts.push({
-            label: "audio-only",
-            constraints: {
-                video: false,
-                audio: { noiseSuppression: true, echoCancellation: true, autoGainControl: true }
+        ]
+        : [
+            {
+                label: "audio-only",
+                constraints: {
+                    video: false,
+                    audio: {
+                        noiseSuppression: true,
+                        echoCancellation: true,
+                        autoGainControl: true
+                    }
+                }
+            },
+            {
+                label: "basic-audio",
+                constraints: { video: false, audio: true }
             }
-        });
-        attempts.push({
-            label: "video-only",
-            constraints: {
-                video: { width: { ideal: 1280 }, height: { ideal: 720 } },
-                audio: false
-            }
-        });
-    } else {
-        attempts.push({
-            label: "audio-only",
-            constraints: {
-                video: false,
-                audio: { noiseSuppression: true, echoCancellation: true, autoGainControl: true }
-            }
-        });
-        attempts.push({
-            label: "basic-audio",
-            constraints: { video: false, audio: true }
-        });
-        attempts.push({
-            label: "video-only-fallback",
-            constraints: {
-                video: { width: { ideal: 1280 }, height: { ideal: 720 } },
-                audio: false
-            }
-        });
-    }
+        ];
 
     let lastError = null;
     for (const attempt of attempts) {
         try {
             const stream = await navigator.mediaDevices.getUserMedia(attempt.constraints);
             return { stream, mode: attempt.label };
-        } catch (err) {
-            lastError = err;
-            console.warn(`Media attempt failed (${attempt.label}):`, err);
+        } catch (error) {
+            lastError = error;
         }
     }
 
-    const virtualFallback = createVirtualFallbackStream(preferVideo);
-    if (virtualFallback) {
-        return { stream: virtualFallback, mode: "virtual-fallback" };
+    const fallback = createVirtualFallbackStream(preferVideo);
+    if (fallback) {
+        return { stream: fallback, mode: "virtual-fallback" };
     }
 
-    throw lastError || new Error("Unable to access microphone/camera on this device.");
+    throw lastError || new Error("Media access failed.");
 }
 
 function createVirtualFallbackStream(preferVideo) {
@@ -1042,395 +1831,222 @@ function createVirtualFallbackStream(preferVideo) {
         const stream = new MediaStream();
         let addedTrack = false;
 
-        // Silent audio track keeps call flow alive even when mic is denied/unavailable.
         try {
-            const AudioCtx = window.AudioContext || window.webkitAudioContext;
-            if (AudioCtx) {
-                const audioCtx = new AudioCtx();
-                const oscillator = audioCtx.createOscillator();
-                const gainNode = audioCtx.createGain();
-                const destination = audioCtx.createMediaStreamDestination();
-                gainNode.gain.value = 0.0001;
-                oscillator.connect(gainNode).connect(destination);
+            const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+            if (AudioContextClass) {
+                const audioContext = new AudioContextClass();
+                const oscillator = audioContext.createOscillator();
+                const gain = audioContext.createGain();
+                const destination = audioContext.createMediaStreamDestination();
+                gain.gain.value = 0.0001;
+                oscillator.connect(gain).connect(destination);
                 oscillator.start();
-                const audioTrack = destination.stream.getAudioTracks()[0];
-                if (audioTrack) {
-                    stream.addTrack(audioTrack);
+                const track = destination.stream.getAudioTracks()[0];
+                if (track) {
+                    stream.addTrack(track);
                     addedTrack = true;
                 }
             }
-        } catch (audioErr) {
-            console.warn("Silent audio fallback unavailable:", audioErr);
+        } catch (error) {
+            void error;
         }
 
-        // Optional blank video track for video-call compatibility when camera is blocked/missing.
         if (preferVideo) {
-            try {
-                const canvas = document.createElement('canvas');
-                canvas.width = 640;
-                canvas.height = 360;
-                const ctx = canvas.getContext('2d');
-                if (ctx) {
-                    ctx.fillStyle = '#0f172a';
-                    ctx.fillRect(0, 0, canvas.width, canvas.height);
-                    ctx.fillStyle = '#93c5fd';
-                    ctx.font = '20px sans-serif';
-                    ctx.fillText('Camera unavailable', 180, 190);
-                }
-                if (canvas.captureStream) {
-                    const videoTrack = canvas.captureStream(5).getVideoTracks()[0];
-                    if (videoTrack) {
-                        stream.addTrack(videoTrack);
-                        addedTrack = true;
-                    }
-                }
-            } catch (videoErr) {
-                console.warn("Blank video fallback unavailable:", videoErr);
+            const canvas = document.createElement("canvas");
+            canvas.width = 640;
+            canvas.height = 360;
+            const context = canvas.getContext("2d");
+            if (context) {
+                context.fillStyle = "#08111e";
+                context.fillRect(0, 0, canvas.width, canvas.height);
+                context.fillStyle = "#c6f5ff";
+                context.font = "24px Bahnschrift";
+                context.fillText("Camera unavailable", 190, 190);
+            }
+
+            const capture = canvas.captureStream?.(4);
+            const track = capture?.getVideoTracks?.()[0];
+            if (track) {
+                stream.addTrack(track);
+                addedTrack = true;
             }
         }
 
         return addedTrack ? stream : null;
-    } catch (err) {
-        console.warn("Virtual fallback stream failed:", err);
+    } catch (error) {
         return null;
     }
 }
 
 async function startCall(videoEnabled) {
-    if (!currentConnection || !currentConnection.open) {
-        alert("Connect to a peer first.");
+    if (!state.currentConnection?.open) {
+        alert("Connect to a peer before starting a call.");
+        return;
+    }
+
+    if (state.currentCall) {
+        alert("A call is already active.");
         return;
     }
 
     try {
         const media = await getCallMediaWithFallback(videoEnabled);
-        localStream = media.stream;
-        document.getElementById('localVideo').srcObject = localStream;
-        document.getElementById('videoContainer').classList.remove('hidden');
+        state.localStream = media.stream;
+        $("localVideo").srcObject = state.localStream;
+        $("videoContainer").classList.remove("hidden");
 
-        if (document.getElementById('recordCall').checked) {
-            initializeCallRecording(localStream, videoEnabled);
+        if ($("recordCall").checked) {
+            initializeCallRecording(state.localStream, videoEnabled);
         }
 
-        currentCall = peer.call(currentConnection.peer, localStream);
-        setupCallHandlers(currentCall);
-
-        let callType = videoEnabled ? "Video Call" : "Audio Call";
-        appendSystemMessage(`${callType} initiated.`);
-        if (media.mode !== "video+audio" && media.mode !== "audio-only") {
-            appendSystemMessage(`Fallback media mode: ${media.mode}`);
-        }
-
-        currentConnection.send({
-            type: 'call-info',
-            callType: callType,
-            timestamp: new Date().toISOString()
+        state.currentCall = state.peer.call(state.currentConnection.peer, state.localStream);
+        setupCallHandlers(state.currentCall);
+        state.currentConnection.send({
+            type: "call-info",
+            callType: videoEnabled ? "Video call" : "Voice call",
+            timestamp: Date.now()
         });
-
-        document.getElementById("callControls").classList.add('hidden');
-
-    } catch (err) {
-        const help = getMediaErrorHelp(err);
+        $("callControls").classList.add("hidden");
+        appendSystemMessage(`Call started using ${media.mode}.`);
+    } catch (error) {
+        const help = getMediaErrorHelp(error);
+        appendSystemMessage(help);
         alert(help);
-        appendSystemMessage(`Call start failed: ${help}`);
-        if (currentConnection && currentConnection.open) {
-            currentConnection.send({ type: 'call-error', reason: help });
+        if (state.currentConnection?.open) {
+            state.currentConnection.send({ type: "call-error", reason: help });
         }
-        console.error(err);
-    }
-}
-
-function initializeCallRecording(stream, isVideo) {
-    try {
-        recordedChunks = [];
-        let options = {
-            mimeType: isVideo ? 'video/webm;codecs=vp8,opus' : 'audio/webm;codecs=opus'
-        };
-        
-        if (!MediaRecorder.isTypeSupported(options.mimeType)) {
-            options.mimeType = isVideo ? 'video/webm' : 'audio/webm';
-        }
-        
-        mediaRecorder = new MediaRecorder(stream, options);
-        
-        mediaRecorder.ondataavailable = (event) => {
-            if (event.data.size > 0) {
-                recordedChunks.push(event.data);
-            }
-        };
-        
-        mediaRecorder.onstop = () => {
-            let blob = new Blob(recordedChunks, { type: mediaRecorder.mimeType });
-            let url = URL.createObjectURL(blob);
-            let link = document.createElement('a');
-            link.href = url;
-            link.download = `encrypted-call-${Date.now()}.webm`;
-            console.log("Recording ready for download", link.download);
-            // Encrypt the recording automatically
-            encryptRecording(blob);
-        };
-        
-        mediaRecorder.start();
-        appendSystemMessage("🎥 Recording started (encrypted)");
-    } catch (err) {
-        console.error("Recording error:", err);
-    }
-}
-
-async function encryptRecording(blob) {
-    try {
-        let buffer = await blob.arrayBuffer();
-        let password = prompt("Set password to encrypt recording:");
-        if (!password) return;
-        
-        let enc = new TextEncoder();
-        let keyMaterial = await crypto.subtle.importKey(
-            "raw",
-            enc.encode(password),
-            { name: "PBKDF2" },
-            false,
-            ["deriveKey"]
-        );
-        
-        let key = await crypto.subtle.deriveKey({
-            name: "PBKDF2",
-            salt: enc.encode("recording"),
-            iterations: 300000,
-            hash: "SHA-256"
-        }, keyMaterial, { name: "AES-GCM", length: 256 }, false, ["encrypt"]);
-        
-        let iv = crypto.getRandomValues(new Uint8Array(12));
-        let encrypted = await crypto.subtle.encrypt(
-            { name: "AES-GCM", iv },
-            key,
-            buffer
-        );
-        
-        let encryptedBlob = new Blob([iv, new Uint8Array(encrypted)]);
-        let url = URL.createObjectURL(encryptedBlob);
-        let link = document.createElement('a');
-        link.href = url;
-        link.download = `secure-call-${Date.now()}.enc`;
-        link.click();
-        
-        appendSystemMessage("✅ Recording encrypted and downloaded");
-    } catch (err) {
-        alert("❌ Recording encryption failed: " + err.message);
     }
 }
 
 async function answerCall(call) {
     try {
-        let wantVideo = confirm("Incoming call. Answer with video?");
-        const media = await getCallMediaWithFallback(wantVideo);
-        localStream = media.stream;
-        document.getElementById('localVideo').srcObject = localStream;
-        document.getElementById('videoContainer').classList.remove('hidden');
+        const useVideo = window.confirm("Incoming call. Answer with video enabled?");
+        const media = await getCallMediaWithFallback(useVideo);
+        state.localStream = media.stream;
+        $("localVideo").srcObject = state.localStream;
+        $("videoContainer").classList.remove("hidden");
 
-        if (document.getElementById('recordCall').checked) {
-            initializeCallRecording(localStream, wantVideo);
+        if ($("recordCall").checked) {
+            initializeCallRecording(state.localStream, useVideo);
         }
 
-        call.answer(localStream);
-        currentCall = call;
-        setupCallHandlers(currentCall);
-        appendSystemMessage("Call answered securely.");
-        if (media.mode !== "video+audio" && media.mode !== "audio-only") {
-            appendSystemMessage(`Fallback media mode: ${media.mode}`);
-        }
-        document.getElementById("callControls").classList.add('hidden');
-
-    } catch (err) {
-        const help = getMediaErrorHelp(err);
+        call.answer(state.localStream);
+        state.currentCall = call;
+        setupCallHandlers(call);
+        $("callControls").classList.add("hidden");
+        appendSystemMessage(`Call answered using ${media.mode}.`);
+    } catch (error) {
+        const help = getMediaErrorHelp(error);
+        appendSystemMessage(help);
         alert(help);
-        appendSystemMessage(`Call answer failed: ${help}`);
-        if (currentConnection && currentConnection.open) {
-            currentConnection.send({ type: 'call-error', reason: help });
-        }
         call.close();
     }
 }
 
 function setupCallHandlers(call) {
-    call.on('stream', (remoteStream) => {
-        document.getElementById('remoteVideo').srcObject = remoteStream;
+    call.on("stream", remoteStream => {
+        $("remoteVideo").srcObject = remoteStream;
     });
 
-    call.on('close', () => {
-        endCall();
+    call.on("close", () => {
+        endCall(false);
     });
-    
-    call.on('error', (err) => {
-        appendSystemMessage("⚠️ Call error: " + err);
+
+    call.on("error", error => {
+        appendSystemMessage(`Call error: ${error}`);
     });
 }
 
-function endCall() {
-    if (mediaRecorder && mediaRecorder.state !== 'inactive') {
-        mediaRecorder.stop();
-    }
-    
-    if (currentCall) {
-        currentCall.close();
-        currentCall = null;
-    }
-    
-    if (localStream) {
-        localStream.getTracks().forEach(track => track.stop());
-        localStream = null;
-    }
-    
-    document.getElementById('videoContainer').classList.add('hidden');
-    document.getElementById('localVideo').srcObject = null;
-    document.getElementById('remoteVideo').srcObject = null;
-    
-    if (currentConnection && currentConnection.open) {
-        document.getElementById("callControls").classList.remove('hidden');
-    }
-    
-    appendSystemMessage("📞 Call ended.");
-}
-
-// Initialize Peer automatically when the script loads
-initPeer();
-
-/* ================= SECURITY MONITORING & ANTI-TAMPERING ================= */
-
-class SecurityAudit {
-    constructor() {
-        this.events = [];
-        this.failedAttempts = {};
-        this.maxFailures = 5;
-        this.lockoutTime = 5 * 60 * 1000; // 5 minutes
-    }
-
-    trackEvent(eventType, details = {}) {
-        let event = {
-            type: eventType,
-            timestamp: new Date().toISOString(),
-            details: details,
-            url: window.location.href
+function initializeCallRecording(stream, isVideo) {
+    try {
+        const options = {
+            mimeType: isVideo ? "video/webm;codecs=vp8,opus" : "audio/webm;codecs=opus"
         };
-        this.events.push(event);
-        
-        // Keep only last 100 events in memory
-        if (this.events.length > 100) {
-            this.events.shift();
+
+        if (!MediaRecorder.isTypeSupported(options.mimeType)) {
+            options.mimeType = isVideo ? "video/webm" : "audio/webm";
         }
-        
-        console.log("[AUDIT]", eventType, details);
-    }
 
-    recordFailedAttempt(type) {
-        let key = type + "_" + new Date().toISOString().split('T')[0];
-        this.failedAttempts[key] = (this.failedAttempts[key] || 0) + 1;
-        
-        if (this.failedAttempts[key] >= this.maxFailures) {
-            alert("⚠️ SECURITY ALERT: Too many failed attempts. This action is temporarily locked.");
-            this.trackEvent("BRUTE_FORCE_ATTEMPT", { type, attempts: this.failedAttempts[key] });
-            return true;
-        }
-        return false;
-    }
-
-    detectTampering() {
-        // Check if page has been modified
-        let integrity = this.calculateCodeIntegrity();
-        this.trackEvent("CODE_INTEGRITY_CHECK", { integrity });
-        return integrity;
-    }
-
-    calculateCodeIntegrity() {
-        let scripts = document.querySelectorAll('script[src]');
-        let hashes = [];
-        scripts.forEach(s => {
-            if (!s.src.includes('peerjs') && !s.src.includes('analytics')) {
-                hashes.push(s.src);
+        state.recordedChunks = [];
+        state.mediaRecorder = new MediaRecorder(stream, options);
+        state.mediaRecorder.ondataavailable = event => {
+            if (event.data.size > 0) {
+                state.recordedChunks.push(event.data);
             }
-        });
-        return hashes.length;
-    }
+        };
 
-    getAuditLog() {
-        return this.events;
-    }
-}
+        state.mediaRecorder.onstop = () => {
+            const blob = new Blob(state.recordedChunks, { type: state.mediaRecorder.mimeType });
+            encryptRecording(blob);
+        };
 
-let securityAudit = new SecurityAudit();
-
-// Monitor for suspicious activities
-document.addEventListener('keydown', (e) => {
-    if ((e.ctrlKey || e.metaKey) && e.key === 'u') {
-        e.preventDefault();
-        securityAudit.trackEvent("INSPECT_ATTEMPT", { blocked: true });
-    }
-    if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'i') {
-        e.preventDefault();
-        securityAudit.trackEvent("DEVTOOLS_ATTEMPT", { blocked: true });
-    }
-});
-
-// Detect copy/paste attempts on sensitive fields
-document.addEventListener('copy', (e) => {
-    if (e.target?.type === 'password') {
-        securityAudit.trackEvent("PASSWORD_COPY_ATTEMPT", { detected: true });
-    }
-});
-
-// Warn about page unload (data loss)
-window.addEventListener('beforeunload', (e) => {
-    if (currentConnection && currentConnection.open) {
-        securityAudit.trackEvent("PAGE_UNLOAD", { activeConnection: true });
-        e.preventDefault();
-        e.returnValue = '';
-    }
-});
-
-// Monitor online/offline status
-window.addEventListener('offline', () => {
-    securityAudit.trackEvent("OFFLINE_STATUS", { online: false });
-    appendSystemMessage("🔴 Offline detected. Switching to local mode.");
-});
-
-window.addEventListener('online', () => {
-    securityAudit.trackEvent("ONLINE_RESTORED", { online: true });
-    appendSystemMessage("🟢 Connection restored.");
-});
-
-  // Export security audit (for debugging)
-function exportSecurityAudit() {
-    let log = securityAudit.getAuditLog();
-    let data = JSON.stringify(log, null, 2);
-    let blob = new Blob([data], { type: 'application/json' });
-    let url = URL.createObjectURL(blob);
-    let link = document.createElement('a');
-    link.href = url;
-    link.download = `security-audit-${Date.now()}.json`;
-    link.click();
-}
-
-/* ================= SAFETY & REVIEW CONTROLS ================= */
-
-function checkTerms() {
-    if (localStorage.getItem("termsAccepted") !== "true") {
-        document.getElementById("termsModal").classList.remove("hidden");
-    } else {
-        document.getElementById("termsModal").classList.add("hidden");
+        state.mediaRecorder.start();
+        appendSystemMessage("Encrypted call recording started.");
+    } catch (error) {
+        appendSystemMessage("Call recording is unavailable in this browser.");
     }
 }
 
-function acceptTerms() {
-    localStorage.setItem("termsAccepted", "true");
-    document.getElementById("termsModal").classList.add("hidden");
+async function encryptRecording(blob) {
+    const password = window.prompt("Set a password to encrypt the call recording:");
+    if (!password) {
+        return;
+    }
+
+    try {
+        const buffer = await blob.arrayBuffer();
+        const salt = crypto.getRandomValues(new Uint8Array(16));
+        const iv = crypto.getRandomValues(new Uint8Array(12));
+        const key = await deriveAesKey(password, salt, ["encrypt"]);
+        const cipherBytes = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, buffer));
+        const metadata = {
+            v: 2,
+            name: `secure-call-${Date.now()}.webm`,
+            type: blob.type || "video/webm",
+            size: blob.size,
+            salt: bytesToBase64(salt),
+            iv: bytesToBase64(iv),
+            createdAt: new Date().toISOString()
+        };
+        const payload = packFileEnvelope(metadata, cipherBytes);
+        downloadBlob(new Blob([payload], { type: "application/octet-stream" }), `${metadata.name}.svp.enc`);
+        appendSystemMessage("Encrypted call recording downloaded.");
+    } catch (error) {
+        alert(`Recording encryption failed: ${error.message}`);
+    }
 }
 
-// Exit prevention to save users from accidental reload loop
-window.addEventListener("beforeunload", function (e) {
-    // Set message for older browsers
-    const confirmationMessage = "Are you sure you want to exit? Your secure connection and all local chat/vault data will be permanently destroyed.";
-    (e || window.event).returnValue = confirmationMessage;
-    return confirmationMessage;
-});
+function endCall(announce = true) {
+    const activeCall = state.currentCall;
+    state.currentCall = null;
 
-// Run terms check on load
-document.addEventListener('DOMContentLoaded', checkTerms);
+    if (state.mediaRecorder && state.mediaRecorder.state !== "inactive") {
+        state.mediaRecorder.stop();
+    }
+    state.mediaRecorder = null;
+
+    if (activeCall) {
+        try {
+            activeCall.close();
+        } catch (error) {
+            void error;
+        }
+    }
+
+    if (state.localStream) {
+        state.localStream.getTracks().forEach(track => track.stop());
+        state.localStream = null;
+    }
+
+    $("videoContainer").classList.add("hidden");
+    $("localVideo").srcObject = null;
+    $("remoteVideo").srcObject = null;
+
+    if (state.currentConnection?.open) {
+        $("callControls").classList.remove("hidden");
+    }
+
+    if (announce) {
+        appendSystemMessage("Call ended.");
+    }
+}
