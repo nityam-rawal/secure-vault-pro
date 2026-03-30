@@ -23,6 +23,86 @@ const DEFAULT_ICE_SERVERS = [
     }
 ];
 
+const SCAM_SCENARIOS = {
+    general: {
+        label: "Account scare",
+        sample: "Your account has unusual activity. Click the link below immediately to verify and avoid service interruption.",
+        actions: [
+            "Do not click, pay, or share any OTP, PIN, or password.",
+            "Open the official app or website yourself instead of using the incoming link.",
+            "If money moved or access was lost, call 1930 and file a report on cybercrime.gov.in."
+        ],
+        hook: "Scammer sabse pehle aapka panic target karta hai.",
+        audienceLine: "Pause, verify from the official app, and never act only because the message sounds urgent."
+    },
+    "digital-arrest": {
+        label: "Digital arrest",
+        sample: "This is Cyber Crime Branch. Your Aadhaar and phone number are linked to illegal activity. Stay on this call, do not tell anyone, and transfer funds for verification or you will be arrested today.",
+        actions: [
+            "Disconnect immediately and call the official police or helpline yourself.",
+            "Never move money to a so-called safe account or verification account.",
+            "Tell a family member right away because secrecy is part of the scam."
+        ],
+        hook: "Police kabhi WhatsApp ya video call par paisa transfer karake inquiry nahi karte.",
+        audienceLine: "Digital arrest scripts use fear, secrecy, and urgent money transfer demands."
+    },
+    "kyc-freeze": {
+        label: "KYC freeze",
+        sample: "Dear customer, your bank KYC expired. Update PAN and Aadhaar within 30 minutes or your account and UPI will be blocked. Download the update app now.",
+        actions: [
+            "Do not install APK files or remote-help apps from messages.",
+            "Check KYC status only from your bank's official app, website, or branch.",
+            "Never share full card details, OTP, or MPIN during a KYC call."
+        ],
+        hook: "KYC ke naam par jo app install karwata hai, woh aksar account khaali karne aaya hai.",
+        audienceLine: "Banks do not fix KYC by asking for OTP, MPIN, or sideloaded app installs."
+    },
+    "parcel-customs": {
+        label: "Parcel customs",
+        sample: "Your parcel is held by customs due to restricted items. Pay the release charge today or legal action will begin. Use the payment link now.",
+        actions: [
+            "Verify the shipment only on the courier's official site using your tracking number.",
+            "Ignore payment links sent by unknown numbers or personal accounts.",
+            "Do not continue if the sender adds police pressure or asks to keep the call private."
+        ],
+        hook: "Fake parcel aur customs scam ka goal sirf fee nahi, aapki identity aur banking access bhi hota hai.",
+        audienceLine: "Customs pressure plus quick payment link is a common scam mix."
+    },
+    "upi-collect": {
+        label: "UPI collect",
+        sample: "I am sending you a collect request to receive your refund. Just approve the request or scan this QR to get the money instantly.",
+        actions: [
+            "Remember: scanning a QR or approving a collect request usually sends money, it does not receive money.",
+            "Never approve UPI requests you did not start yourself.",
+            "If money left the account, call 1930 and your bank immediately."
+        ],
+        hook: "UPI mein paise lene ke liye PIN nahi dalte, PIN dalte hi paise jaate hain.",
+        audienceLine: "Refund, reward, and collect-request scripts are built to confuse payment direction."
+    },
+    "job-fee": {
+        label: "Job fee",
+        sample: "Congratulations, your interview is cleared. Pay the registration and security fee today for your joining letter. This amount is fully refundable after onboarding.",
+        actions: [
+            "Real hiring teams do not ask for registration or refundable joining fees.",
+            "Verify job openings on the company's official careers page.",
+            "Do not share ID proofs, bank details, or OTPs with recruiters on chat apps."
+        ],
+        hook: "Job scam mein sabse common red flag hota hai joining se pehle fee demand karna.",
+        audienceLine: "Refundable processing fee is one of the oldest recruitment scam patterns."
+    },
+    "investment-tip": {
+        label: "Investment tip",
+        sample: "Join our private trading channel for guaranteed returns. Start with a small deposit today and we will double your capital using premium operator signals.",
+        actions: [
+            "Avoid guaranteed-return groups, premium Telegram channels, and pressure to top up fast.",
+            "Do not install unknown trading apps or remote-support tools.",
+            "Separate your investing identity from your main email, banking, and phone recovery."
+        ],
+        hook: "Guaranteed return ka promise aam taur par guaranteed fraud hota hai.",
+        audienceLine: "High-return urgency plus private group pressure is a classic funnel into fraud."
+    }
+};
+
 const state = {
     chatWarningShown: false,
     lastEncryptedText: "",
@@ -33,6 +113,8 @@ const state = {
         accountSummary: null,
         historyEntries: [],
         historySummary: null,
+        scamAnalysis: null,
+        awarenessPack: [],
         lastAuditReport: null
     },
     sharePackage: null,
@@ -60,6 +142,7 @@ function initApp() {
     updateChatComposerHeight();
     initPeer();
     handleSharedPayloadFromUrl();
+    generateAwarenessPack(false);
 
     $("shareModal").addEventListener("click", event => {
         if (event.target.id === "shareModal") {
@@ -859,6 +942,348 @@ function clearHashOnly() {
     history.replaceState({}, "", `${window.location.pathname}${window.location.search}`);
 }
 
+function getScenarioConfig(key) {
+    return SCAM_SCENARIOS[key] || SCAM_SCENARIOS.general;
+}
+
+function buildEmergencyChecklist(analysis = state.auditData.scamAnalysis) {
+    const lead = analysis
+        ? `Pause. This sample matches ${analysis.scenarioLabel.toLowerCase()} tactics.`
+        : "Pause before replying or paying anything.";
+
+    return [
+        lead,
+        "Do not share OTP, MPIN, CVV, password, or screen access.",
+        "Open the official app or website yourself instead of tapping the incoming link.",
+        "If money moved or access changed, call 1930 immediately.",
+        "File a report on cybercrime.gov.in and contact the bank or wallet provider.",
+        "Warn family or the group where the message is spreading."
+    ];
+}
+
+function copyEmergencyChecklist() {
+    const text = [
+        "Secure Vault Pro emergency checklist",
+        ...buildEmergencyChecklist().map(item => `- ${item}`)
+    ].join("\n");
+
+    copyToClipboard(text, "Emergency checklist copied.");
+}
+
+function loadScamDecoderSample(key = "digital-arrest") {
+    const scenario = getScenarioConfig(key);
+    $("scamInput").value = scenario.sample;
+    $("scamSourceInput").value = "";
+    showBanner(`${scenario.label} sample loaded into Scam Decoder.`, "success");
+}
+
+function clearScamDecoder() {
+    $("scamInput").value = "";
+    $("scamSourceInput").value = "";
+    hideMetricStrip("scamSummary");
+    $("scamResult").classList.add("hidden");
+    $("scamResult").innerHTML = "";
+    state.auditData.scamAnalysis = null;
+    generateAwarenessPack(false);
+    renderAttackSurfaceInsights();
+}
+
+function extractExplicitUrls(text) {
+    return [...new Set(
+        (String(text || "").match(/\b(?:https?:\/\/|www\.)[^\s<>"']+|\b[a-z0-9-]+\.(?:com|in|org|net|me|app|co|xyz|top|click|zip)\b[^\s<>"']*/gi) || [])
+            .map(match => match.replace(/[),.;]+$/, ""))
+    )];
+}
+
+function buildScamAnalysis(message, source = "") {
+    const combined = [message, source].filter(Boolean).join("\n").trim();
+    const signalCatalog = [
+        {
+            scenario: "digital-arrest",
+            weight: 28,
+            pattern: /\b(digital arrest|crime branch|cbi|police|arrest|legal action|court notice)\b/i,
+            reason: "Uses police or legal pressure to force quick compliance."
+        },
+        {
+            scenario: "kyc-freeze",
+            weight: 18,
+            pattern: /\b(kyc|aadhaar|aadhar|pan|account blocked|account freeze|upi blocked|suspend)\b/i,
+            reason: "Claims KYC or identity trouble that will freeze the account."
+        },
+        {
+            scenario: "general",
+            weight: 24,
+            pattern: /\b(otp|cvv|mpin|pin|password|passcode)\b/i,
+            reason: "Asks for OTP, PIN, password, or CVV."
+        },
+        {
+            scenario: "kyc-freeze",
+            weight: 30,
+            pattern: /\b(anydesk|teamviewer|quicksupport|rustdesk|screen share|remote access)\b/i,
+            reason: "Pushes screen sharing or remote access tools."
+        },
+        {
+            scenario: "upi-collect",
+            weight: 20,
+            pattern: /\b(collect request|scan qr|scan the qr|refund|cashback|reward|upi|gpay|phonepe|paytm)\b/i,
+            reason: "Uses UPI refund, collect request, or QR scan language."
+        },
+        {
+            scenario: "parcel-customs",
+            weight: 18,
+            pattern: /\b(parcel|courier|shipment|customs|delivery)\b/i,
+            reason: "Uses parcel, customs, or delivery pressure."
+        },
+        {
+            scenario: "job-fee",
+            weight: 20,
+            pattern: /\b(job|interview|joining|registration fee|security fee|processing fee|refundable)\b/i,
+            reason: "Uses job-offer language plus an upfront fee."
+        },
+        {
+            scenario: "investment-tip",
+            weight: 20,
+            pattern: /\b(guaranteed return|double your money|trading tip|investment|profit signal|telegram channel)\b/i,
+            reason: "Promises guaranteed profit or private investment signals."
+        },
+        {
+            scenario: "general",
+            weight: 12,
+            pattern: /\b(urgent|immediately|today|now|last warning|within \d+|in \d+ minutes)\b/i,
+            reason: "Creates artificial urgency."
+        },
+        {
+            scenario: "digital-arrest",
+            weight: 18,
+            pattern: /\b(do not tell anyone|stay on this call|keep this private|confidential)\b/i,
+            reason: "Asks for secrecy or tries to isolate the target."
+        },
+        {
+            scenario: "general",
+            weight: 18,
+            pattern: /\b(safe account|verification account|deposit|release fee|top up|transfer funds)\b/i,
+            reason: "Requests payment or transfer to solve a fake problem."
+        },
+        {
+            scenario: "kyc-freeze",
+            weight: 16,
+            pattern: /\b(click here|download app|install app|apk)\b/i,
+            reason: "Pushes unsafe links or app installs."
+        }
+    ];
+
+    const signalMatches = signalCatalog
+        .filter(signal => signal.pattern.test(combined))
+        .map(signal => ({
+            scenario: signal.scenario,
+            weight: signal.weight,
+            reason: signal.reason
+        }));
+
+    const rawLinks = extractExplicitUrls(combined);
+    const urlFindings = rawLinks
+        .map(link => readUrlCandidate(link))
+        .filter(Boolean)
+        .map(url => analyzeHistoryRecord({ url, title: "" }));
+    const phoneMatches = [...new Set(combined.match(/(?:\+91[\s-]?)?[6-9]\d{9}\b/g) || [])];
+    const upiMatches = [...new Set(combined.match(/\b[a-z0-9._-]{2,}@(ybl|ibl|axl|oksbi|okicici|okhdfcbank|paytm|upi)\b/gi) || [])];
+
+    const scenarioWeights = signalMatches.reduce((totals, signal) => {
+        totals[signal.scenario] = (totals[signal.scenario] || 0) + signal.weight;
+        return totals;
+    }, {});
+
+    if (!Object.keys(scenarioWeights).length && urlFindings.length) {
+        scenarioWeights.general = urlFindings.reduce((sum, finding) => sum + Math.min(18, finding.score), 0);
+    }
+
+    const scenarioKey = Object.entries(scenarioWeights)
+        .sort((left, right) => right[1] - left[1])[0]?.[0] || "general";
+    const scenario = getScenarioConfig(scenarioKey);
+    const urlScore = urlFindings.reduce((sum, finding) => sum + Math.min(26, finding.score), 0);
+    const indicatorScore = (phoneMatches.length ? 8 : 0) + (upiMatches.length ? 10 : 0);
+    const score = Math.min(
+        100,
+        signalMatches.reduce((sum, signal) => sum + signal.weight, 0) + urlScore + indicatorScore
+    );
+
+    const severity = score >= 75
+        ? "critical"
+        : score >= 50
+            ? "high"
+            : score >= 28
+                ? "medium"
+                : "low";
+
+    const reasons = [
+        ...signalMatches.map(signal => signal.reason),
+        ...urlFindings.flatMap(finding => finding.reasons.slice(0, 2).map(reason => `${finding.domain}: ${reason}`)),
+        phoneMatches.length ? `${phoneMatches.length} phone number${phoneMatches.length > 1 ? "s" : ""} appear in the pasted content.` : "",
+        upiMatches.length ? `${upiMatches.length} UPI handle${upiMatches.length > 1 ? "s" : ""} were found in the sample.` : ""
+    ].filter(Boolean);
+
+    const actions = [...new Set([
+        ...scenario.actions,
+        urlFindings.length ? "Type the official website manually instead of opening the shared link." : "",
+        signalMatches.some(signal => /remote access|screen sharing/i.test(signal.reason))
+            ? "Remove any remote-access app opened during the call and review device permissions."
+            : "",
+        phoneMatches.length ? "Verify the caller by dialing the official number from the bank or service website, not the incoming call." : "",
+        upiMatches.length ? "Treat UPI handle requests as payment requests until you verify them in the official app." : "",
+        severity === "critical" || severity === "high" ? "Escalate to 1930 fast if money, cards, or account access are already involved." : ""
+    ].filter(Boolean)]).slice(0, 5);
+
+    return {
+        score,
+        severity,
+        scenarioKey,
+        scenarioLabel: scenario.label,
+        signalMatches,
+        reasons,
+        actions,
+        indicators: {
+            links: urlFindings.length,
+            phones: phoneMatches.length,
+            upiHandles: upiMatches.length
+        }
+    };
+}
+
+function renderScamDecoder(analysis) {
+    renderMetricStrip("scamSummary", [
+        { value: analysis.score, label: "risk score" },
+        { value: analysis.severity.toUpperCase(), label: "severity" },
+        { value: analysis.scenarioLabel, label: "likely pattern" },
+        { value: analysis.signalMatches.length + analysis.indicators.links, label: "signals" }
+    ]);
+
+    const lines = [
+        ...analysis.reasons.slice(0, 5),
+        ...analysis.actions.map(action => `Action: ${action}`)
+    ];
+
+    $("scamResult").innerHTML = `
+        <div class="decoder-head">
+            <span class="decoder-badge ${analysis.severity}">${escapeHtml(`${analysis.severity} risk`)}</span>
+            <p>${escapeHtml(`Likely pattern: ${analysis.scenarioLabel}.`)}</p>
+        </div>
+        ${formatList(lines)}
+    `;
+    $("scamResult").classList.remove("hidden");
+}
+
+function analyzeScamText() {
+    const message = $("scamInput").value.trim();
+    const source = $("scamSourceInput").value.trim();
+
+    if (!message && !source) {
+        alert("Paste a suspicious message, URL, or caller note first.");
+        return;
+    }
+
+    const analysis = buildScamAnalysis(message, source);
+    state.auditData.scamAnalysis = analysis;
+    renderScamDecoder(analysis);
+    generateAwarenessPack(false);
+    renderAttackSurfaceInsights();
+    showBanner(
+        analysis.severity === "critical" || analysis.severity === "high"
+            ? `${analysis.scenarioLabel} pattern detected. Pause and verify before doing anything else.`
+            : `${analysis.scenarioLabel} review generated.`,
+        analysis.severity === "low" ? "success" : "warning"
+    );
+}
+
+function buildAwarenessPack(analysis = state.auditData.scamAnalysis) {
+    const scenario = getScenarioConfig(analysis?.scenarioKey || "general");
+    const severityLabel = analysis ? `${analysis.severity.toUpperCase()} risk` : "Community alert";
+    const topAction = analysis?.actions?.[0] || scenario.actions[0];
+
+    return [
+        {
+            id: "family-alert",
+            channel: "WhatsApp",
+            title: "Family Alert",
+            hook: `${severityLabel}: ${scenario.hook}`,
+            body: `Agar koi police, bank, courier, KYC, refund, ya job ke naam par urgency create kare, OTP, QR scan, ya payment mat karo. ${scenario.audienceLine}`,
+            cta: "Save 1930, use official apps only, and forward this to the family group before the next scam wave."
+        },
+        {
+            id: "reel-hook",
+            channel: "Instagram Reels",
+            title: "30-second Reel Hook",
+            hook: `Hook: ${scenario.hook}`,
+            body: `Script: Ek fake message ya call aapko daraata hai, jaldi karwata hai, aur verification ke naam par paisa ya access maangta hai. Red flag dekho, panic nahi. ${topAction}`,
+            cta: "End card: Verify from the official app. If money moved, call 1930."
+        },
+        {
+            id: "poster-copy",
+            channel: "Community Poster",
+            title: "Poster Copy",
+            hook: `Headline: ${scenario.label} se bachne ke 3 rules`,
+            body: "Rule 1: OTP, MPIN, CVV, password, ya screen access kabhi share mat karo. Rule 2: Incoming link ya number se verify mat karo. Rule 3: Payment ho gaya ho to 1930 aur cybercrime.gov.in use karo.",
+            cta: "Use this in schools, RWAs, offices, coaching groups, and branch counters."
+        },
+        {
+            id: "workshop-opener",
+            channel: "Workshop",
+            title: "60-second Opener",
+            hook: "Most scams do not break systems first, they break attention first.",
+            body: `Aaj ka sample ${scenario.label.toLowerCase()} pattern dikhata hai. Attackers fear, urgency, secrecy, ya refund story use karke victim ko official process se bahar le jaate hain. ${scenario.audienceLine}`,
+            cta: "Close with one habit: pause, verify from the official app, and warn one more person."
+        }
+    ];
+}
+
+function renderAwarenessPack(cards) {
+    $("awarenessPackGrid").innerHTML = cards.map(card => `
+        <article class="awareness-card">
+            <div class="awareness-card-top">
+                <span class="channel-pill">${escapeHtml(card.channel)}</span>
+                <button type="button" class="ghost-btn" onclick="copyAwarenessCard('${card.id}')">Copy</button>
+            </div>
+            <h4>${escapeHtml(card.title)}</h4>
+            <p class="awareness-hook">${escapeHtml(card.hook)}</p>
+            <p>${escapeHtml(card.body)}</p>
+            <p class="awareness-cta">${escapeHtml(card.cta)}</p>
+        </article>
+    `).join("");
+}
+
+function formatAwarenessCard(card) {
+    return [
+        `${card.channel} | ${card.title}`,
+        card.hook,
+        "",
+        card.body,
+        "",
+        card.cta
+    ].join("\n");
+}
+
+function generateAwarenessPack(shouldNotify = true) {
+    const pack = buildAwarenessPack();
+    state.auditData.awarenessPack = pack;
+    renderAwarenessPack(pack);
+    if (shouldNotify) {
+        showBanner("Awareness pack generated for sharing.", "success");
+    }
+}
+
+function copyAwarenessCard(cardId) {
+    if (!state.auditData.awarenessPack.length) {
+        generateAwarenessPack(false);
+    }
+
+    const card = state.auditData.awarenessPack.find(item => item.id === cardId);
+    if (!card) {
+        alert("That awareness card is not available yet.");
+        return;
+    }
+
+    copyToClipboard(formatAwarenessCard(card), `${card.title} copied.`);
+}
+
 function detectEmailProvider(email) {
     const domain = (email.split("@")[1] || "").toLowerCase();
 
@@ -1455,9 +1880,10 @@ function renderInsightGrid(cards) {
 function renderAttackSurfaceInsights(primaryEmail = $("emailInput").value.trim().toLowerCase()) {
     const accountSummary = state.auditData.accountSummary;
     const historySummary = state.auditData.historySummary;
+    const scamAnalysis = state.auditData.scamAnalysis;
     const attackSurfaceResult = $("attackSurfaceResult");
 
-    if (!accountSummary && !historySummary) {
+    if (!accountSummary && !historySummary && !scamAnalysis) {
         $("auditInsightGrid").innerHTML = "";
         attackSurfaceResult.classList.add("hidden");
         attackSurfaceResult.innerHTML = "";
@@ -1471,6 +1897,15 @@ function renderAttackSurfaceInsights(primaryEmail = $("emailInput").value.trim()
     const riskyLoginBait = historySummary?.suspiciousLogins?.length || 0;
 
     const cards = [
+        ...(scamAnalysis ? [{
+            title: "Live scam pressure",
+            summary: "What the currently pasted message or caller note is trying to make the user do next.",
+            items: [
+                `${scamAnalysis.severity.toUpperCase()} risk score from the scam decoder.`,
+                `Likely pattern: ${scamAnalysis.scenarioLabel}.`,
+                scamAnalysis.actions[0] || "Pause and verify using the official app."
+            ]
+        }] : []),
         {
             title: "Identity footprint",
             summary: primaryEmail
@@ -1507,6 +1942,9 @@ function renderAttackSurfaceInsights(primaryEmail = $("emailInput").value.trim()
     renderInsightGrid(cards);
 
     const summaryLines = [
+        ...(scamAnalysis
+            ? [`Scam Decoder currently flags a ${scamAnalysis.severity} risk ${scamAnalysis.scenarioLabel.toLowerCase()} pattern.`]
+            : []),
         largestReuseCluster
             ? `If one reused password falls, the biggest blast radius currently touches ${largestReuseCluster} accounts.`
             : "No reused-password cluster has been confirmed from imported account data.",
@@ -1535,10 +1973,14 @@ function buildAuditReportPayload(options = {}) {
     const passwordStrength = calculateStrength(password);
     const accountSummary = state.auditData.accountSummary;
     const historySummary = state.auditData.historySummary;
+    const scamAnalysis = state.auditData.scamAnalysis;
     const riskyHistory = historySummary?.highRiskCount || 0;
     const mediumHistory = historySummary?.mediumRiskCount || 0;
     const largestReuseCluster = accountSummary?.passwordGroups?.[0]?.length || 0;
     const attackSummary = [
+        ...(scamAnalysis
+            ? [`Scam Decoder flagged a ${scamAnalysis.severity} risk ${scamAnalysis.scenarioLabel.toLowerCase()} pattern.`]
+            : []),
         largestReuseCluster
             ? `Largest reused-password cluster affects ${largestReuseCluster} saved accounts.`
             : "No reused-password cluster confirmed from imported account data.",
@@ -1587,6 +2029,19 @@ function buildAuditReportPayload(options = {}) {
             overlappingDomains: historySummary.overlapping,
             topRiskDomains: historySummary.topRiskDomains
         } : null,
+        scamSummary: scamAnalysis ? {
+            score: scamAnalysis.score,
+            severity: scamAnalysis.severity,
+            scenario: scamAnalysis.scenarioLabel,
+            reasons: scamAnalysis.reasons,
+            actions: scamAnalysis.actions,
+            indicators: scamAnalysis.indicators
+        } : null,
+        awarenessPack: state.auditData.awarenessPack.map(card => ({
+            id: card.id,
+            channel: card.channel,
+            title: card.title
+        })),
         attackSummary,
         recommendations: options.recommendations || []
     };
@@ -1596,8 +2051,10 @@ function exportAuditReport(format = "json") {
     const report = state.auditData.lastAuditReport || buildAuditReportPayload();
     const hasData = Boolean(
         report.profile.primaryEmail ||
+        report.scamSummary ||
         state.auditData.accountEntries.length ||
         state.auditData.historyEntries.length ||
+        state.auditData.awarenessPack.length ||
         $("resultText").textContent.trim()
     );
 
@@ -1619,6 +2076,7 @@ function exportAuditReport(format = "json") {
             `Recovery provider: ${report.profile.recoveryProvider || "not set"}`,
             `Contacts: ${report.profile.contacts}`,
             `Password strength: ${report.profile.passwordStrength}`,
+            report.scamSummary ? `Scam Decoder: ${report.scamSummary.severity} risk ${report.scamSummary.scenario}` : "Scam Decoder: not run",
             "",
             "Attack summary:",
             ...report.attackSummary.map(item => `- ${item}`),
@@ -1752,8 +2210,20 @@ async function checkBreach(password) {
     }
 }
 
-function buildPlaybooks(provider, recoveryProvider, passwordBreached) {
+function buildPlaybooks(provider, recoveryProvider, passwordBreached, scamAnalysis = state.auditData.scamAnalysis) {
     const cards = [];
+
+    cards.push({
+        title: "India rapid response branch",
+        description: scamAnalysis
+            ? `Treat the current sample as a ${scamAnalysis.scenarioLabel.toLowerCase()} case until official verification proves otherwise.`
+            : "Use this branch when a user is scared, rushed, or unsure whether a call or message is real.",
+        actions: buildEmergencyChecklist(scamAnalysis).slice(0, 4),
+        links: [
+            { label: "Call 1930", href: "tel:1930" },
+            { label: "Report cybercrime", href: "https://cybercrime.gov.in/" }
+        ]
+    });
 
     if (provider.key === "google" || /google|gmail/i.test(recoveryProvider)) {
         cards.push({
@@ -1878,6 +2348,7 @@ async function runComprehensiveScan() {
     const username = $("usernameInput").value.trim();
     const contacts = Number($("contactInput").value) || 0;
     const recoveryProvider = $("recoveryProviderInput").value.trim();
+    const scamAnalysis = state.auditData.scamAnalysis;
 
     const provider = detectEmailProvider(email);
     const passwordStrength = calculateStrength(password);
@@ -1967,6 +2438,14 @@ async function runComprehensiveScan() {
                 : "No history import analyzed."
         },
         {
+            label: "Live scam pressure",
+            weight: 14,
+            score: scamAnalysis ? Math.max(8, 100 - scamAnalysis.score) : 58,
+            summary: scamAnalysis
+                ? `${scamAnalysis.severity.toUpperCase()} risk ${scamAnalysis.scenarioLabel.toLowerCase()} pattern detected.`
+                : "Scam Decoder has not been run yet."
+        },
+        {
             label: "Device readiness",
             weight: 10,
             score: scoreDeviceSignals(),
@@ -1978,6 +2457,9 @@ async function runComprehensiveScan() {
     const totalScore = Math.round(metrics.reduce((sum, metric) => sum + metric.score * metric.weight, 0) / totalWeight);
     const findings = metrics.map(metric => `${metric.label}: ${metric.summary}`);
     const nextSteps = [
+        ...(scamAnalysis
+            ? [`Treat the current message as ${scamAnalysis.scenarioLabel.toLowerCase()} until you verify it from an official source.`]
+            : []),
         passwordBreached ? "Rotate the tested password before continuing to lower-priority accounts." : "Keep the tested password unique even if it looked healthy.",
         email.includes("+") ? "Keep alias-style addressing for new signups." : "Start using aliases or service-specific addresses for risky signups.",
         contacts > 750 ? "Reduce over-shared address books where possible." : "Keep high-value contacts compartmentalized from public-facing apps.",
@@ -1998,8 +2480,9 @@ async function runComprehensiveScan() {
         ${formatList(nextSteps)}
     `;
 
-    renderPlaybooks(buildPlaybooks(provider, recoveryProvider, passwordBreached));
+    renderPlaybooks(buildPlaybooks(provider, recoveryProvider, passwordBreached, scamAnalysis));
     renderTimeline([
+        { title: "Stop the scam flow", detail: scamAnalysis ? (scamAnalysis.actions[0] || "Pause and verify using an official channel.") : "Pause, verify, and do not follow the incoming message path." },
         { title: "Lock the primary account", detail: "Review active sessions, recovery channels, and outstanding alerts first." },
         { title: "Rotate exposed secrets", detail: passwordBreached ? "Reset the tested password everywhere it may be reused." : "Confirm each important account has a unique secret." },
         { title: "Compartmentalize future signups", detail: provider.key === "proton" ? "Use Proton aliases to isolate new services." : "Use aliases and separate recovery paths for risky services." }

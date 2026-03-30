@@ -112,6 +112,13 @@ body::after {
     color: var(--muted);
 }
 
+.hero-badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-top: 18px;
+}
+
 .eyebrow {
     margin: 0 0 10px;
     color: var(--primary);
@@ -446,6 +453,52 @@ button:active {
     margin: 8px 0 18px;
 }
 
+.response-strip {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 12px;
+    margin-bottom: 18px;
+}
+
+.response-card {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 58px;
+    padding: 14px 16px;
+    border-radius: 18px;
+    border: 1px solid rgba(125, 211, 252, 0.14);
+    background: rgba(7, 18, 30, 0.78);
+    color: var(--text);
+    text-decoration: none;
+    text-align: center;
+    font-weight: 700;
+    box-shadow: none;
+}
+
+button.response-card {
+    width: 100%;
+}
+
+.response-card:hover {
+    filter: none;
+    background: rgba(11, 28, 44, 0.94);
+}
+
+.emergency-card {
+    background: linear-gradient(135deg, #f97316, #f59e0b);
+    border-color: rgba(249, 115, 22, 0.32);
+    color: #051018;
+}
+
+.emergency-card:hover {
+    background: linear-gradient(135deg, #fb923c, #f59e0b);
+}
+
+.crisis-grid {
+    margin-bottom: 18px;
+}
+
 .audit-lab-card {
     padding: 18px;
     border-radius: 22px;
@@ -475,6 +528,23 @@ button:active {
     font-size: 0.84rem;
 }
 
+.scenario-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: 6px 0 12px;
+}
+
+.scenario-chip {
+    padding: 9px 12px;
+    border-radius: 999px;
+    box-shadow: none;
+}
+
+.scenario-chip:hover {
+    transform: none;
+}
+
 .breach-section {
     padding: 18px;
     border-radius: 20px;
@@ -499,6 +569,46 @@ button:active {
     border-left: 4px solid var(--primary);
     color: var(--muted);
     font-size: 0.92rem;
+}
+
+.decoder-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 10px;
+}
+
+.decoder-head p {
+    margin: 0;
+    color: var(--muted);
+}
+
+.decoder-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 7px 11px;
+    border-radius: 999px;
+    font-size: 0.78rem;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.decoder-badge.low {
+    background: rgba(52, 211, 153, 0.16);
+    color: #cbfff2;
+}
+
+.decoder-badge.medium {
+    background: rgba(245, 158, 11, 0.16);
+    color: #ffe2a7;
+}
+
+.decoder-badge.high,
+.decoder-badge.critical {
+    background: rgba(249, 115, 22, 0.16);
+    color: #ffd0c0;
 }
 
 .wheel {
@@ -652,6 +762,68 @@ button:active {
     text-decoration: none;
     background: rgba(56, 189, 248, 0.12);
     border: 1px solid rgba(56, 189, 248, 0.18);
+}
+
+.awareness-grid {
+    display: grid;
+    gap: 12px;
+    margin-top: 14px;
+}
+
+.awareness-card {
+    padding: 16px;
+    border-radius: 20px;
+    background: rgba(5, 14, 24, 0.72);
+    border: 1px solid rgba(125, 211, 252, 0.10);
+}
+
+.awareness-card-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 10px;
+}
+
+.channel-pill {
+    display: inline-flex;
+    align-items: center;
+    padding: 6px 10px;
+    border-radius: 999px;
+    background: rgba(56, 189, 248, 0.12);
+    border: 1px solid rgba(56, 189, 248, 0.16);
+    color: #bfefff;
+    font-size: 0.78rem;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+}
+
+.awareness-card h4 {
+    margin: 0 0 8px;
+    font-size: 1rem;
+}
+
+.awareness-card p {
+    margin: 0;
+    color: var(--muted);
+}
+
+.awareness-card p + p {
+    margin-top: 8px;
+}
+
+.awareness-hook {
+    color: var(--text) !important;
+    font-weight: 700;
+}
+
+.awareness-cta {
+    color: #cbfff2 !important;
+}
+
+.awareness-card button {
+    box-shadow: none;
 }
 
 .breach-timeline {
