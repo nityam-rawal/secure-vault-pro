@@ -169,9 +169,51 @@
                         </div>
                     </div>
 
-                    <button onclick="runComprehensiveScan()" class="btn-primary">Run Full Privacy Audit</button>
+                    <div class="audit-lab-grid">
+                        <div class="audit-lab-card">
+                            <div class="lab-heading">
+                                <div>
+                                    <p class="eyebrow">Import and map</p>
+                                    <h3>Saved Account Inventory</h3>
+                                </div>
+                                <p class="lab-note">Import a password-manager or browser export to see where the same email, username, and password patterns repeat.</p>
+                            </div>
+                            <input type="file" id="accountCsvInput" accept=".csv,.txt,.json">
+                            <div class="btn-row">
+                                <button onclick="analyzeAccountImport()">Analyze Saved Accounts</button>
+                                <button class="ghost-btn" onclick="clearAccountImport()">Clear Accounts</button>
+                            </div>
+                            <div id="accountImportSummary" class="metric-strip hidden"></div>
+                            <div id="accountImportResult" class="breach-result hidden"></div>
+                        </div>
+
+                        <div class="audit-lab-card">
+                            <div class="lab-heading">
+                                <div>
+                                    <p class="eyebrow">Local history scan</p>
+                                    <h3>Visited Site Risk Review</h3>
+                                </div>
+                                <p class="lab-note">Import history data or paste suspicious URLs. The scan looks for phishing-style patterns, risky domains, shorteners, and login bait. Use the companion extension for faster history export.</p>
+                            </div>
+                            <input type="file" id="historyImportInput" accept=".csv,.txt,.json">
+                            <textarea id="historyPasteInput" placeholder="Optional: paste URLs or domains, one per line..."></textarea>
+                            <div class="btn-row">
+                                <button onclick="analyzeHistoryImport()">Analyze History Risk</button>
+                                <button class="ghost-btn" onclick="clearHistoryImport()">Clear History Data</button>
+                            </div>
+                            <div id="historyImportSummary" class="metric-strip hidden"></div>
+                            <div id="historyImportResult" class="breach-result hidden"></div>
+                        </div>
+                    </div>
+
+                    <div class="btn-row audit-action-row">
+                        <button onclick="runComprehensiveScan()" class="btn-primary audit-primary-btn">Run Full Privacy Audit</button>
+                        <button class="ghost-btn" onclick="exportAuditReport('json')">Export JSON</button>
+                        <button class="ghost-btn" onclick="exportAuditReport('txt')">Export TXT</button>
+                    </div>
 
                     <div id="resultText" class="result-text hidden"></div>
+                    <div id="attackSurfaceResult" class="result-text hidden"></div>
 
                     <div class="wheel">
                         <svg width="200" height="200" viewBox="0 0 200 200" aria-hidden="true">
@@ -182,12 +224,13 @@
                         <div id="scoreText">0</div>
                     </div>
 
+                    <div id="auditInsightGrid" class="insight-grid"></div>
                     <div id="adviceText" class="advice-section hidden"></div>
                     <div id="playbookGrid" class="playbook-grid"></div>
                     <div id="breachTimeline" class="breach-timeline hidden"></div>
 
                     <p class="privacy-note">
-                        Password checks use k-anonymity. Email and phone review stay local and are shown as provider/recovery guidance, not unverified breach claims.
+                        Password checks use k-anonymity. Account inventory and history analysis stay local in your browser, and this app does not secretly read your browsing history or scrape breach dumps.
                     </p>
                 </div>
             </section>

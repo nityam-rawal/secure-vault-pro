@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Secure Vault Pro Companion</title>
+    <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+    <main class="popup-shell">
+        <header class="popup-hero">
+            <p class="eyebrow">Companion extension</p>
+            <h1>Secure Vault Pro</h1>
+            <p class="subtitle">Export user-consented browser history into a local file that the web app can analyze safely.</p>
+        </header>
+
+        <section class="panel">
+            <label for="rangeDays">History range</label>
+            <select id="rangeDays">
+                <option value="1">Last 24 hours</option>
+                <option value="7">Last 7 days</option>
+                <option value="30" selected>Last 30 days</option>
+                <option value="90">Last 90 days</option>
+            </select>
+
+            <label for="appUrl">Secure Vault app URL</label>
+            <input id="appUrl" type="url" placeholder="https://your-secure-vault-app-url">
+
+            <div class="action-row">
+                <button id="refreshButton" type="button">Refresh Preview</button>
+                <button id="openAppButton" type="button" class="ghost-btn">Open Web App</button>
+            </div>
+        </section>
+
+        <section class="panel">
+            <div id="metricGrid" class="metric-grid"></div>
+            <div id="previewResult" class="result-box"></div>
+        </section>
+
+        <section class="panel">
+            <div class="action-row stacked">
+                <button id="exportButton" type="button">Download History JSON</button>
+                <button id="copySummaryButton" type="button" class="ghost-btn">Copy Risk Summary</button>
+            </div>
+            <p class="footnote">The extension only reads history after you install it and grant the browser permission. It does not send data anywhere by itself.</p>
+            <div id="statusText" class="status-text"></div>
+        </section>
+    </main>
+
+    <script src="popup.js"></script>
+</body>
+</html>

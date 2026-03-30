@@ -28,6 +28,13 @@ const state = {
     lastEncryptedText: "",
     lastEncryptedFilePackage: null,
     importedEncryptedFilePackage: null,
+    auditData: {
+        accountEntries: [],
+        accountSummary: null,
+        historyEntries: [],
+        historySummary: null,
+        lastAuditReport: null
+    },
     sharePackage: null,
     peer: null,
     currentConnection: null,
@@ -896,6 +903,691 @@ function formatList(items) {
     return `<ul>${items.map(item => `<li>${escapeHtml(item)}</li>`).join("")}</ul>`;
 }
 
+function renderMetricStrip(targetId, metrics) {
+    const target = $(targetId);
+    target.innerHTML = metrics.map(metric => `
+        <div class="metric-chip">
+            <strong>${escapeHtml(String(metric.value))}</strong>
+            <span>${escapeHtml(metric.label)}</span>
+        </div>
+    `).join("");
+    target.classList.remove("hidden");
+}
+
+function hideMetricStrip(targetId) {
+    const target = $(targetId);
+    target.classList.add("hidden");
+    target.innerHTML = "";
+}
+
+function normalizeHeaderLabel(label) {
+    return String(label || "")
+        .trim()
+        .toLowerCase()
+        .replace(/^\ufeff/, "")
+        .replace(/[^a-z0-9]+/g, "");
+}
+
+function detectDelimiter(line) {
+    const candidates = [",", ";", "\t", "|"];
+    const counts = candidates.map(delimiter => ({
+        delimiter,
+        count: line.split(delimiter).length - 1
+    }));
+    return counts.sort((left, right) => right.count - left.count)[0]?.delimiter || ",";
+}
+
+function parseCsv(text) {
+    const cleaned = String(text || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n").replace(/^\ufeff/, "");
+    const delimiter = detectDelimiter(cleaned.split("\n")[0] || ",");
+    const rows = [];
+    let currentRow = [];
+    let currentValue = "";
+    let inQuotes = false;
+
+    for (let index = 0; index < cleaned.length; index += 1) {
+        const char = cleaned[index];
+        const next = cleaned[index + 1];
+
+        if (char === "\"") {
+            if (inQuotes && next === "\"") {
+                currentValue += "\"";
+                index += 1;
+            } else {
+                inQuotes = !inQuotes;
+            }
+            continue;
+        }
+
+        if (char === delimiter && !inQuotes) {
+            currentRow.push(currentValue);
+            currentValue = "";
+            continue;
+        }
+
+        if (char === "\n" && !inQuotes) {
+            currentRow.push(currentValue);
+            if (currentRow.some(cell => String(cell).trim() !== "")) {
+                rows.push(currentRow);
+            }
+            currentRow = [];
+            currentValue = "";
+            continue;
+        }
+
+        currentValue += char;
+    }
+
+    if (currentValue.length || currentRow.length) {
+        currentRow.push(currentValue);
+        if (currentRow.some(cell => String(cell).trim() !== "")) {
+            rows.push(currentRow);
+        }
+    }
+
+    return rows;
+}
+
+function findColumnIndex(headers, candidates) {
+    const normalized = headers.map(normalizeHeaderLabel);
+    return normalized.findIndex(header => candidates.includes(header));
+}
+
+function normalizeHostname(value) {
+    const raw = String(value || "").trim();
+    if (!raw) {
+        return "";
+    }
+
+    try {
+        const prepared = /^[a-z]+:\/\//i.test(raw) ? raw : `https://${raw.replace(/^\/\//, "")}`;
+        return new URL(prepared).hostname.replace(/^www\./i, "").toLowerCase();
+    } catch (error) {
+        return "";
+    }
+}
+
+function readUrlCandidate(value) {
+    const raw = String(value || "").trim();
+    if (!raw) {
+        return "";
+    }
+
+    try {
+        return new URL(/^[a-z]+:\/\//i.test(raw) ? raw : `https://${raw.replace(/^\/\//, "")}`).toString();
+    } catch (error) {
+        return "";
+    }
+}
+
+function groupBy(items, getKey) {
+    return items.reduce((groups, item) => {
+        const key = getKey(item);
+        if (!key) {
+            return groups;
+        }
+        if (!groups[key]) {
+            groups[key] = [];
+        }
+        groups[key].push(item);
+        return groups;
+    }, {});
+}
+
+async function readFileText(inputId) {
+    const file = $(inputId).files[0];
+    if (!file) {
+        return "";
+    }
+    return file.text();
+}
+
+function parseAccountRows(text) {
+    const trimmed = String(text || "").trim();
+    try {
+        if (trimmed.startsWith("[") || trimmed.startsWith("{")) {
+            const parsed = JSON.parse(trimmed);
+            const records = Array.isArray(parsed)
+                ? parsed
+                : Array.isArray(parsed?.items)
+                    ? parsed.items
+                    : Array.isArray(parsed?.accounts)
+                        ? parsed.accounts
+                        : [];
+
+            const mapped = records.map(record => {
+                const url = readUrlCandidate(record.url || record.website || record.origin || record.login_uri || "");
+                const domain = normalizeHostname(url || record.domain || "");
+                const username = String(record.username || record.user || record.email || record.login_username || "").trim();
+                const password = String(record.password || record.pass || record.login_password || "").trim();
+                const name = String(record.name || record.title || domain || username).trim();
+                const note = String(record.note || record.notes || "").trim();
+                return { name, url, domain, username, password, note };
+            }).filter(entry => entry.domain || entry.username || entry.password);
+
+            if (mapped.length) {
+                return mapped;
+            }
+        }
+    } catch (error) {
+        void error;
+    }
+
+    const rows = parseCsv(text);
+    if (!rows.length) {
+        return [];
+    }
+
+    const headers = rows[0];
+    const urlIndex = findColumnIndex(headers, ["url", "website", "site", "origin", "loginuri", "websiteurl", "uri"]);
+    const usernameIndex = findColumnIndex(headers, ["username", "user", "login", "email", "loginusername"]);
+    const passwordIndex = findColumnIndex(headers, ["password", "pass", "loginpassword"]);
+    const nameIndex = findColumnIndex(headers, ["name", "title", "account", "label"]);
+    const noteIndex = findColumnIndex(headers, ["note", "notes", "comment"]);
+
+    return rows.slice(1)
+        .map(row => {
+            const url = readUrlCandidate(urlIndex >= 0 ? row[urlIndex] : "");
+            const domain = normalizeHostname(url || row[urlIndex] || "");
+            const username = String(usernameIndex >= 0 ? row[usernameIndex] : "").trim();
+            const password = String(passwordIndex >= 0 ? row[passwordIndex] : "").trim();
+            const name = String(nameIndex >= 0 ? row[nameIndex] : domain || username).trim();
+            const note = String(noteIndex >= 0 ? row[noteIndex] : "").trim();
+
+            return { name, url, domain, username, password, note };
+        })
+        .filter(entry => entry.domain || entry.username || entry.password);
+}
+
+function buildAccountSummary(entries, primaryEmail = "") {
+    const uniqueDomains = [...new Set(entries.map(entry => entry.domain).filter(Boolean))];
+    const passwordGroups = Object.values(groupBy(entries.filter(entry => entry.password), entry => entry.password))
+        .filter(group => group.length > 1)
+        .sort((left, right) => right.length - left.length);
+    const weakPasswords = entries.filter(entry => entry.password && calculateStrength(entry.password) < 40);
+    const httpEntries = entries.filter(entry => entry.url.startsWith("http://"));
+    const primaryMatches = primaryEmail
+        ? entries.filter(entry => entry.username.toLowerCase() === primaryEmail.toLowerCase()).length
+        : 0;
+    const domainsByUsername = Object.values(groupBy(entries.filter(entry => entry.username), entry => entry.username.toLowerCase()))
+        .filter(group => group.length > 1)
+        .sort((left, right) => right.length - left.length);
+    const topDomains = Object.entries(groupBy(entries.filter(entry => entry.domain), entry => entry.domain))
+        .map(([domain, group]) => ({ domain, count: group.length }))
+        .sort((left, right) => right.count - left.count)
+        .slice(0, 5);
+
+    return {
+        totalAccounts: entries.length,
+        uniqueDomains: uniqueDomains.length,
+        passwordGroups,
+        weakPasswords,
+        httpEntries,
+        primaryMatches,
+        domainsByUsername,
+        topDomains
+    };
+}
+
+function renderAccountImport(summary) {
+    renderMetricStrip("accountImportSummary", [
+        { value: summary.totalAccounts, label: "saved accounts" },
+        { value: summary.uniqueDomains, label: "unique domains" },
+        { value: summary.passwordGroups.length, label: "reuse clusters" },
+        { value: summary.weakPasswords.length, label: "weak passwords" }
+    ]);
+
+    const lines = [
+        `Imported ${summary.totalAccounts} saved accounts across ${summary.uniqueDomains} distinct domains.`,
+        summary.primaryMatches
+            ? `Your primary email matches ${summary.primaryMatches} saved logins.`
+            : "No explicit primary-email matches were found in the imported usernames.",
+        summary.passwordGroups.length
+            ? `Largest password reuse cluster affects ${summary.passwordGroups[0].length} accounts.`
+            : "No direct password reuse cluster was detected in the imported rows.",
+        summary.weakPasswords.length
+            ? `${summary.weakPasswords.length} saved passwords look weak by local entropy checks.`
+            : "No clearly weak saved password was flagged by the local strength check.",
+        summary.httpEntries.length
+            ? `${summary.httpEntries.length} account records still point to HTTP URLs.`
+            : "No HTTP-only login URL was detected in the import.",
+        summary.topDomains.length
+            ? `Top repeated domains: ${summary.topDomains.map(item => `${item.domain} (${item.count})`).join(", ")}.`
+            : "No repeated domains to highlight yet."
+    ];
+
+    $("accountImportResult").innerHTML = formatList(lines);
+    $("accountImportResult").classList.remove("hidden");
+}
+
+async function analyzeAccountImport() {
+    const text = await readFileText("accountCsvInput");
+    if (!text.trim()) {
+        alert("Import a saved-account CSV or compatible export first.");
+        return;
+    }
+
+    const entries = parseAccountRows(text);
+    if (!entries.length) {
+        alert("I could not find account rows in that file.");
+        return;
+    }
+
+    state.auditData.accountEntries = entries;
+    state.auditData.accountSummary = buildAccountSummary(entries, $("emailInput").value.trim());
+    renderAccountImport(state.auditData.accountSummary);
+    renderAttackSurfaceInsights();
+}
+
+function clearAccountImport() {
+    $("accountCsvInput").value = "";
+    $("accountImportResult").classList.add("hidden");
+    $("accountImportResult").innerHTML = "";
+    hideMetricStrip("accountImportSummary");
+    state.auditData.accountEntries = [];
+    state.auditData.accountSummary = null;
+    renderAttackSurfaceInsights();
+}
+
+function parseHistoryRows(text) {
+    const trimmed = String(text || "").trim();
+    if (!trimmed) {
+        return [];
+    }
+
+    try {
+        if (trimmed.startsWith("[") || trimmed.startsWith("{")) {
+            const parsed = JSON.parse(trimmed);
+            const records = Array.isArray(parsed)
+                ? parsed
+                : Array.isArray(parsed?.items)
+                    ? parsed.items
+                    : Array.isArray(parsed?.history)
+                        ? parsed.history
+                        : [];
+
+            return records.map(record => ({
+                url: readUrlCandidate(record.url || record.URL || record.link || ""),
+                title: String(record.title || record.name || "").trim()
+            })).filter(record => record.url);
+        }
+    } catch (error) {
+        void error;
+    }
+
+    const rows = parseCsv(trimmed);
+    if (rows.length > 1) {
+        const headers = rows[0];
+        const urlIndex = findColumnIndex(headers, ["url", "link", "website", "address"]);
+        const titleIndex = findColumnIndex(headers, ["title", "name", "page"]);
+        if (urlIndex >= 0) {
+            return rows.slice(1)
+                .map(row => ({
+                    url: readUrlCandidate(row[urlIndex]),
+                    title: String(titleIndex >= 0 ? row[titleIndex] : "").trim()
+                }))
+                .filter(record => record.url);
+        }
+    }
+
+    return trimmed
+        .split(/\r?\n/)
+        .map(line => ({ url: readUrlCandidate(line), title: "" }))
+        .filter(record => record.url);
+}
+
+function analyzeHistoryRecord(record) {
+    const url = new URL(record.url);
+    const domain = url.hostname.replace(/^www\./i, "").toLowerCase();
+    const raw = record.url.toLowerCase();
+    const riskyTlds = [".zip", ".top", ".xyz", ".click", ".country", ".gq", ".cf", ".tk", ".work"];
+    const shorteners = ["bit.ly", "tinyurl.com", "t.co", "rb.gy", "cutt.ly", "is.gd", "ow.ly", "buff.ly"];
+    const loginWords = /(login|signin|verify|update|secure|auth|password|reset|wallet|bank|invoice|support)/i;
+    const reasons = [];
+    let score = 0;
+
+    if (url.protocol === "http:") {
+        reasons.push("unencrypted http");
+        score += 18;
+    }
+    if (/^\d{1,3}(\.\d{1,3}){3}$/.test(domain)) {
+        reasons.push("ip-based host");
+        score += 30;
+    }
+    if (domain.startsWith("xn--")) {
+        reasons.push("punycode host");
+        score += 28;
+    }
+    if (shorteners.includes(domain)) {
+        reasons.push("shortener redirect");
+        score += 22;
+    }
+    if (riskyTlds.some(tld => domain.endsWith(tld))) {
+        reasons.push("high-abuse tld");
+        score += 18;
+    }
+    if (loginWords.test(raw)) {
+        reasons.push("login-bait keywords");
+        score += 16;
+    }
+    if (/https?:\/\/[^/]*@/i.test(record.url)) {
+        reasons.push("embedded credentials pattern");
+        score += 18;
+    }
+    if (domain.split(".").length >= 5) {
+        reasons.push("deep subdomain chain");
+        score += 10;
+    }
+    if (url.port && !["80", "443"].includes(url.port)) {
+        reasons.push("non-standard port");
+        score += 8;
+    }
+
+    return {
+        ...record,
+        domain,
+        reasons,
+        score,
+        severity: score >= 40 ? "high" : score >= 20 ? "medium" : "low"
+    };
+}
+
+function buildHistorySummary(entries, accountEntries = []) {
+    const enriched = entries.map(analyzeHistoryRecord);
+    const uniqueDomains = [...new Set(enriched.map(entry => entry.domain))];
+    const domainSet = new Set(accountEntries.map(entry => entry.domain).filter(Boolean));
+    const overlapping = [...new Set(enriched.map(entry => entry.domain).filter(domain => domainSet.has(domain)))];
+    const risky = enriched.filter(entry => entry.score >= 20);
+    const highRisk = enriched.filter(entry => entry.score >= 40);
+    const mediumRisk = enriched.filter(entry => entry.score >= 20 && entry.score < 40);
+    const suspiciousLogins = enriched.filter(entry => entry.reasons.includes("login-bait keywords"));
+    const shorteners = enriched.filter(entry => entry.reasons.includes("shortener redirect"));
+    const topRiskDomains = Object.entries(groupBy(risky, entry => entry.domain))
+        .map(([domain, group]) => ({ domain, count: group.length, score: group.reduce((sum, item) => sum + item.score, 0) }))
+        .sort((left, right) => right.score - left.score || right.count - left.count)
+        .slice(0, 5);
+
+    return {
+        totalEntries: enriched.length,
+        uniqueDomains: uniqueDomains.length,
+        riskyCount: risky.length,
+        highRiskCount: highRisk.length,
+        mediumRiskCount: mediumRisk.length,
+        suspiciousLogins,
+        shorteners,
+        overlapping,
+        topRiskDomains,
+        enriched
+    };
+}
+
+function renderHistoryImport(summary) {
+    renderMetricStrip("historyImportSummary", [
+        { value: summary.totalEntries, label: "history rows" },
+        { value: summary.uniqueDomains, label: "unique domains" },
+        { value: summary.highRiskCount, label: "high risk" },
+        { value: summary.overlapping.length, label: "account overlaps" }
+    ]);
+
+    const lines = [
+        `Parsed ${summary.totalEntries} history entries across ${summary.uniqueDomains} distinct domains.`,
+        summary.highRiskCount
+            ? `${summary.highRiskCount} entries scored high risk based on phishing-style heuristics.`
+            : "No entry reached the high-risk threshold.",
+        summary.mediumRiskCount
+            ? `${summary.mediumRiskCount} additional entries landed in the medium-risk band.`
+            : "No medium-risk entries were flagged.",
+        summary.suspiciousLogins.length
+            ? `${summary.suspiciousLogins.length} entries used login, verify, reset, or support keywords in the URL.`
+            : "No obvious login-bait keywords were found in imported URLs.",
+        summary.shorteners.length
+            ? `${summary.shorteners.length} entries were hidden behind URL shorteners.`
+            : "No URL shortener entries were detected.",
+        summary.overlapping.length
+            ? `Visited domains overlap with imported account domains on ${summary.overlapping.length} hosts.`
+            : "No imported-account overlap was detected yet.",
+        summary.topRiskDomains.length
+            ? `Top risky domains: ${summary.topRiskDomains.map(item => `${item.domain} (${item.count})`).join(", ")}.`
+            : "No risky domains to rank yet."
+    ];
+
+    $("historyImportResult").innerHTML = formatList(lines);
+    $("historyImportResult").classList.remove("hidden");
+}
+
+async function analyzeHistoryImport() {
+    const fileText = await readFileText("historyImportInput");
+    const pastedText = $("historyPasteInput").value.trim();
+    const combined = [fileText, pastedText].filter(Boolean).join("\n");
+
+    if (!combined.trim()) {
+        alert("Import history data or paste URLs first.");
+        return;
+    }
+
+    const entries = parseHistoryRows(combined);
+    if (!entries.length) {
+        alert("I could not extract any URLs from that history input.");
+        return;
+    }
+
+    state.auditData.historyEntries = entries;
+    state.auditData.historySummary = buildHistorySummary(entries, state.auditData.accountEntries);
+    renderHistoryImport(state.auditData.historySummary);
+    renderAttackSurfaceInsights();
+}
+
+function clearHistoryImport() {
+    $("historyImportInput").value = "";
+    $("historyPasteInput").value = "";
+    $("historyImportResult").classList.add("hidden");
+    $("historyImportResult").innerHTML = "";
+    hideMetricStrip("historyImportSummary");
+    state.auditData.historyEntries = [];
+    state.auditData.historySummary = null;
+    renderAttackSurfaceInsights();
+}
+
+function renderInsightGrid(cards) {
+    const target = $("auditInsightGrid");
+    target.innerHTML = cards.map(card => `
+        <article class="insight-card">
+            <h3>${escapeHtml(card.title)}</h3>
+            <p>${escapeHtml(card.summary)}</p>
+            <ul class="insight-list">
+                ${card.items.map(item => `<li>${escapeHtml(item)}</li>`).join("")}
+            </ul>
+        </article>
+    `).join("");
+}
+
+function renderAttackSurfaceInsights(primaryEmail = $("emailInput").value.trim().toLowerCase()) {
+    const accountSummary = state.auditData.accountSummary;
+    const historySummary = state.auditData.historySummary;
+    const attackSurfaceResult = $("attackSurfaceResult");
+
+    if (!accountSummary && !historySummary) {
+        $("auditInsightGrid").innerHTML = "";
+        attackSurfaceResult.classList.add("hidden");
+        attackSurfaceResult.innerHTML = "";
+        return;
+    }
+
+    const largestReuseCluster = accountSummary?.passwordGroups?.[0]?.length || 0;
+    const identityMatches = accountSummary?.primaryMatches || 0;
+    const historyOverlap = historySummary?.overlapping?.length || 0;
+    const riskyHistory = historySummary?.highRiskCount || 0;
+    const riskyLoginBait = historySummary?.suspiciousLogins?.length || 0;
+
+    const cards = [
+        {
+            title: "Identity footprint",
+            summary: primaryEmail
+                ? `How far the main identity spreads across imported account data.`
+                : "Import saved accounts and add a primary email to map identity reuse.",
+            items: [
+                primaryEmail ? `Primary email match count: ${identityMatches}.` : "Primary email not set.",
+                accountSummary ? `Imported account inventory size: ${accountSummary.totalAccounts}.` : "No account inventory imported.",
+                accountSummary?.domainsByUsername?.[0]
+                    ? `A single username repeats across ${accountSummary.domainsByUsername[0].length} accounts.`
+                    : "No large username reuse cluster detected."
+            ]
+        },
+        {
+            title: "Credential reuse",
+            summary: "This is the fastest path an attacker uses after a single credential leak.",
+            items: [
+                largestReuseCluster ? `Largest reused-password cluster unlocks ${largestReuseCluster} accounts.` : "No password reuse cluster detected in imported data.",
+                accountSummary ? `${accountSummary.weakPasswords.length} imported passwords look weak locally.` : "Weak-password analysis unavailable until account import.",
+                accountSummary ? `${accountSummary.httpEntries.length} imported records still point at HTTP pages.` : "HTTP login analysis unavailable until account import."
+            ]
+        },
+        {
+            title: "Browsing bait",
+            summary: "Risky browsing signals often reveal where phishing or credential capture starts.",
+            items: [
+                historySummary ? `${riskyHistory} high-risk history entries were flagged.` : "No history import analyzed yet.",
+                historySummary ? `${riskyLoginBait} login-bait URLs were found.` : "Login-bait scan unavailable until history import.",
+                historySummary ? `${historyOverlap} visited domains overlap with imported account domains.` : "No account-history overlap measured yet."
+            ]
+        }
+    ];
+
+    renderInsightGrid(cards);
+
+    const summaryLines = [
+        largestReuseCluster
+            ? `If one reused password falls, the biggest blast radius currently touches ${largestReuseCluster} accounts.`
+            : "No reused-password cluster has been confirmed from imported account data.",
+        identityMatches
+            ? `Your main email appears directly inside ${identityMatches} imported account rows.`
+            : primaryEmail
+                ? "The current primary email did not appear directly in imported usernames."
+                : "Set a primary email to measure direct account linkage.",
+        riskyHistory
+            ? `${riskyHistory} high-risk visited URLs deserve manual review before reusing credentials on similar domains.`
+            : "No high-risk browsing pattern has been flagged from the imported history."
+    ];
+
+    attackSurfaceResult.innerHTML = formatList(summaryLines);
+    attackSurfaceResult.classList.remove("hidden");
+}
+
+function buildAuditReportPayload(options = {}) {
+    const primaryEmail = $("emailInput").value.trim().toLowerCase();
+    const phoneDigits = $("phoneInput").value.replace(/\D/g, "");
+    const password = $("passwordInput").value;
+    const username = $("usernameInput").value.trim();
+    const recoveryProvider = $("recoveryProviderInput").value.trim();
+    const contacts = Number($("contactInput").value) || 0;
+    const provider = detectEmailProvider(primaryEmail);
+    const passwordStrength = calculateStrength(password);
+    const accountSummary = state.auditData.accountSummary;
+    const historySummary = state.auditData.historySummary;
+    const riskyHistory = historySummary?.highRiskCount || 0;
+    const mediumHistory = historySummary?.mediumRiskCount || 0;
+    const largestReuseCluster = accountSummary?.passwordGroups?.[0]?.length || 0;
+    const attackSummary = [
+        largestReuseCluster
+            ? `Largest reused-password cluster affects ${largestReuseCluster} saved accounts.`
+            : "No reused-password cluster confirmed from imported account data.",
+        accountSummary
+            ? `${accountSummary.primaryMatches} imported accounts directly match the configured primary email.`
+            : "No saved-account inventory was imported.",
+        historySummary
+            ? `${riskyHistory} high-risk and ${mediumHistory} medium-risk history entries were flagged.`
+            : "No history import was analyzed."
+    ];
+
+    return {
+        exportedAt: new Date().toISOString(),
+        reportType: "secure-vault-audit",
+        score: options.score ?? null,
+        profile: {
+            primaryEmail,
+            emailProvider: provider.label,
+            recoveryProvider,
+            phoneDigitsLength: phoneDigits.length,
+            username,
+            contacts,
+            passwordStrength
+        },
+        importedData: {
+            accountEntries: state.auditData.accountEntries.length,
+            historyEntries: state.auditData.historyEntries.length
+        },
+        accountSummary: accountSummary ? {
+            totalAccounts: accountSummary.totalAccounts,
+            uniqueDomains: accountSummary.uniqueDomains,
+            primaryMatches: accountSummary.primaryMatches,
+            weakPasswords: accountSummary.weakPasswords.length,
+            reuseClusters: accountSummary.passwordGroups.length,
+            largestReuseCluster,
+            httpEntries: accountSummary.httpEntries.length,
+            topDomains: accountSummary.topDomains
+        } : null,
+        historySummary: historySummary ? {
+            totalEntries: historySummary.totalEntries,
+            uniqueDomains: historySummary.uniqueDomains,
+            highRiskCount: historySummary.highRiskCount,
+            mediumRiskCount: historySummary.mediumRiskCount,
+            suspiciousLogins: historySummary.suspiciousLogins.length,
+            shorteners: historySummary.shorteners.length,
+            overlappingDomains: historySummary.overlapping,
+            topRiskDomains: historySummary.topRiskDomains
+        } : null,
+        attackSummary,
+        recommendations: options.recommendations || []
+    };
+}
+
+function exportAuditReport(format = "json") {
+    const report = state.auditData.lastAuditReport || buildAuditReportPayload();
+    const hasData = Boolean(
+        report.profile.primaryEmail ||
+        state.auditData.accountEntries.length ||
+        state.auditData.historyEntries.length ||
+        $("resultText").textContent.trim()
+    );
+
+    if (!hasData) {
+        alert("Run the audit or import some local data first.");
+        return;
+    }
+
+    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+
+    if (format === "txt") {
+        const textReport = [
+            "Secure Vault Pro Audit Report",
+            `Exported: ${report.exportedAt}`,
+            report.score !== null ? `Score: ${report.score}` : "Score: not generated yet",
+            "",
+            `Primary email: ${report.profile.primaryEmail || "not set"}`,
+            `Provider: ${report.profile.emailProvider || "unknown"}`,
+            `Recovery provider: ${report.profile.recoveryProvider || "not set"}`,
+            `Contacts: ${report.profile.contacts}`,
+            `Password strength: ${report.profile.passwordStrength}`,
+            "",
+            "Attack summary:",
+            ...report.attackSummary.map(item => `- ${item}`),
+            "",
+            "Recommendations:",
+            ...(report.recommendations.length ? report.recommendations.map(item => `- ${item}`) : ["- Run the full privacy audit for fuller recommendations."])
+        ].join("\n");
+
+        downloadBlob(new Blob([textReport], { type: "text/plain;charset=utf-8" }), `secure-vault-audit-${timestamp}.txt`);
+        showBanner("TXT audit report downloaded.", "success");
+        return;
+    }
+
+    downloadBlob(
+        new Blob([JSON.stringify(report, null, 2)], { type: "application/json" }),
+        `secure-vault-audit-${timestamp}.json`
+    );
+    showBanner("JSON audit report downloaded.", "success");
+}
+
 function checkEmailBreach() {
     const email = $("emailInput").value.trim().toLowerCase();
 
@@ -1140,6 +1832,36 @@ async function runComprehensiveScan() {
     const passwordStrength = calculateStrength(password);
     const passwordBreached = await checkBreach(password);
 
+    if (state.auditData.accountEntries.length) {
+        state.auditData.accountSummary = buildAccountSummary(state.auditData.accountEntries, email);
+        renderAccountImport(state.auditData.accountSummary);
+    }
+
+    if (state.auditData.historyEntries.length) {
+        state.auditData.historySummary = buildHistorySummary(state.auditData.historyEntries, state.auditData.accountEntries);
+        renderHistoryImport(state.auditData.historySummary);
+    }
+
+    const accountImportScore = state.auditData.accountSummary
+        ? Math.max(
+            10,
+            92
+                - Math.min(34, state.auditData.accountSummary.weakPasswords.length * 4)
+                - Math.min(28, state.auditData.accountSummary.passwordGroups.length * 8)
+                - Math.min(20, state.auditData.accountSummary.httpEntries.length * 5)
+        )
+        : 52;
+
+    const historyImportScore = state.auditData.historySummary
+        ? Math.max(
+            8,
+            90
+                - Math.min(40, state.auditData.historySummary.highRiskCount * 12)
+                - Math.min(24, state.auditData.historySummary.shorteners.length * 6)
+                - Math.min(22, state.auditData.historySummary.suspiciousLogins.length * 4)
+        )
+        : 54;
+
     const metrics = [
         {
             label: "Password quality",
@@ -1178,6 +1900,22 @@ async function runComprehensiveScan() {
             summary: contacts ? `${contacts} saved contacts entered.` : "No contact count entered."
         },
         {
+            label: "Imported account hygiene",
+            weight: 12,
+            score: accountImportScore,
+            summary: state.auditData.accountSummary
+                ? `${state.auditData.accountSummary.passwordGroups.length} reuse clusters and ${state.auditData.accountSummary.weakPasswords.length} weak imported passwords.`
+                : "No account export imported."
+        },
+        {
+            label: "Browsing risk pressure",
+            weight: 10,
+            score: historyImportScore,
+            summary: state.auditData.historySummary
+                ? `${state.auditData.historySummary.highRiskCount} high-risk and ${state.auditData.historySummary.mediumRiskCount} medium-risk history entries.`
+                : "No history import analyzed."
+        },
+        {
             label: "Device readiness",
             weight: 10,
             score: scoreDeviceSignals(),
@@ -1195,6 +1933,11 @@ async function runComprehensiveScan() {
         recoveryProvider ? `Review the backup mailbox or provider you listed: ${recoveryProvider}.` : "Add and audit a dedicated recovery channel that is different from the primary inbox."
     ];
 
+    state.auditData.lastAuditReport = buildAuditReportPayload({
+        score: totalScore,
+        recommendations: nextSteps
+    });
+
     $("resultText").classList.remove("hidden");
     $("resultText").innerHTML = formatList(findings);
 
@@ -1210,6 +1953,7 @@ async function runComprehensiveScan() {
         { title: "Rotate exposed secrets", detail: passwordBreached ? "Reset the tested password everywhere it may be reused." : "Confirm each important account has a unique secret." },
         { title: "Compartmentalize future signups", detail: provider.key === "proton" ? "Use Proton aliases to isolate new services." : "Use aliases and separate recovery paths for risky services." }
     ]);
+    renderAttackSurfaceInsights(email);
     animateWheel(totalScore);
 }
 

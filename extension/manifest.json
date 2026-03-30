@@ -1,0 +1,16 @@
+{
+  "manifest_version": 3,
+  "name": "Secure Vault Pro Companion",
+  "description": "Exports browser history into a local format for Secure Vault Pro's privacy-risk analyzer.",
+  "version": "1.0.0",
+  "permissions": [
+    "history",
+    "downloads",
+    "storage",
+    "tabs"
+  ],
+  "action": {
+    "default_title": "Secure Vault Pro Companion",
+    "default_popup": "popup.html"
+  }
+}
