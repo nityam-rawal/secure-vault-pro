@@ -47,7 +47,6 @@ const state = {
 };
 
 const $ = id => document.getElementById(id);
-
 document.addEventListener("DOMContentLoaded", initApp);
 window.addEventListener("hashchange", handleSharedPayloadFromUrl);
 window.addEventListener("online", updateOfflineBanner);
@@ -57,6 +56,7 @@ window.addEventListener("beforeunload", handleBeforeUnload);
 function initApp() {
     checkTerms();
     updateOfflineBanner();
+    initPasswordToggles();
     updateChatComposerHeight();
     initPeer();
     handleSharedPayloadFromUrl();
@@ -66,6 +66,57 @@ function initApp() {
             closeShareModal();
         }
     });
+}
+
+function initPasswordToggles() {
+    document.querySelectorAll('input[type="password"]').forEach(input => {
+        if (input.parentElement?.classList.contains("password-field")) {
+            return;
+        }
+
+        const wrapper = document.createElement("div");
+        wrapper.className = "password-field";
+        input.parentNode.insertBefore(wrapper, input);
+        wrapper.appendChild(input);
+
+        const toggle = document.createElement("button");
+        toggle.type = "button";
+        toggle.className = "password-toggle";
+        toggle.setAttribute("aria-label", "Show password");
+        toggle.setAttribute("aria-pressed", "false");
+        toggle.innerHTML = getPasswordToggleIcon(false);
+        toggle.addEventListener("click", () => togglePasswordVisibility(input, toggle));
+        wrapper.appendChild(toggle);
+    });
+}
+
+function getPasswordToggleIcon(visible) {
+    return visible
+        ? `
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M3 3l18 18"></path>
+                <path d="M10.6 10.7a2.5 2.5 0 003.5 3.5"></path>
+                <path d="M9.4 5.3A11.6 11.6 0 0112 5c5 0 8.9 4 10 7-0.5 1.4-1.6 3-3.2 4.4"></path>
+                <path d="M6.2 6.3C4 7.7 2.6 9.9 2 12c1.2 3.1 5 7 10 7 1.4 0 2.7-0.3 3.9-0.8"></path>
+            </svg>
+        `
+        : `
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M2 12c1.1-3 5-7 10-7s8.9 4 10 7c-1.1 3-5 7-10 7S3.1 15 2 12z"></path>
+                <circle cx="12" cy="12" r="3"></circle>
+            </svg>
+        `;
+}
+
+function togglePasswordVisibility(input, toggle) {
+    const isVisible = input.type === "text";
+    input.type = isVisible ? "password" : "text";
+    toggle.setAttribute("aria-label", isVisible ? "Show password" : "Hide password");
+    toggle.setAttribute("aria-pressed", String(!isVisible));
+    toggle.innerHTML = getPasswordToggleIcon(!isVisible);
+    input.focus({ preventScroll: true });
+    const length = input.value.length;
+    input.setSelectionRange?.(length, length);
 }
 
 function showTab(tab) {

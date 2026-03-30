@@ -24,12 +24,13 @@
 html {
     scroll-behavior: smooth;
     scrollbar-gutter: stable both-edges;
+    background: #08111e;
 }
 
 body {
     margin: 0;
     min-height: 100vh;
-    overflow-x: clip;
+    overflow-x: hidden;
     overscroll-behavior-y: none;
     color: var(--text);
     font-family: Bahnschrift, "Segoe UI Variable", "Segoe UI", sans-serif;
@@ -43,30 +44,7 @@ body {
 
 body::before,
 body::after {
-    content: "";
-    position: fixed;
-    inset: -20%;
-    pointer-events: none;
-    z-index: -1;
-    transform: translateZ(0);
-    will-change: transform;
-}
-
-body::before {
-    background:
-        radial-gradient(circle at 20% 40%, rgba(56, 189, 248, 0.08), transparent 20%),
-        radial-gradient(circle at 75% 25%, rgba(20, 184, 166, 0.07), transparent 18%);
-    animation: drift 24s ease-in-out infinite;
-}
-
-body::after {
-    background-image:
-        radial-gradient(1px 1px at 20% 30%, rgba(237, 247, 255, 0.20), transparent),
-        radial-gradient(1px 1px at 70% 58%, rgba(56, 189, 248, 0.18), transparent),
-        radial-gradient(1px 1px at 43% 75%, rgba(20, 184, 166, 0.16), transparent);
-    background-size: 180px 180px;
-    animation: shimmer 28s linear infinite;
-    opacity: 0.5;
+    content: none;
 }
 
 @keyframes drift {
@@ -93,13 +71,6 @@ body::after {
     padding: 28px 20px 56px;
 }
 
-.hero-card,
-.card,
-.modal-content {
-    backdrop-filter: blur(18px);
-    -webkit-backdrop-filter: blur(18px);
-}
-
 .hero-card {
     display: grid;
     grid-template-columns: 1.5fr 1fr;
@@ -112,6 +83,19 @@ body::after {
         linear-gradient(135deg, rgba(56, 189, 248, 0.10), transparent 32%),
         linear-gradient(180deg, rgba(8, 19, 32, 0.96), rgba(10, 23, 38, 0.82));
     box-shadow: var(--shadow);
+    position: relative;
+    overflow: hidden;
+}
+
+.hero-card::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background:
+        linear-gradient(90deg, rgba(56, 189, 248, 0.16), transparent 18%),
+        radial-gradient(circle at top right, rgba(20, 184, 166, 0.12), transparent 28%);
+    opacity: 0.9;
 }
 
 .hero-copy h1 {
@@ -122,9 +106,9 @@ body::after {
 }
 
 .hero-subtitle {
-    max-width: 60ch;
+    max-width: 40ch;
     margin: 14px 0 0;
-    font-size: 1rem;
+    font-size: 0.98rem;
     color: var(--muted);
 }
 
@@ -139,7 +123,7 @@ body::after {
 
 .hero-stats {
     display: grid;
-    gap: 14px;
+    gap: 10px;
 }
 
 .hero-stat,
@@ -151,7 +135,7 @@ body::after {
 }
 
 .hero-stat {
-    padding: 16px;
+    padding: 14px 15px;
 }
 
 .hero-stat strong {
@@ -166,9 +150,7 @@ body::after {
 }
 
 .header-actions {
-    position: sticky;
-    top: 10px;
-    z-index: 10;
+    position: static;
     margin-bottom: 20px;
 }
 
@@ -211,6 +193,18 @@ body::after {
         linear-gradient(180deg, rgba(10, 23, 38, 0.92), rgba(8, 18, 30, 0.88));
     border: 1px solid rgba(125, 211, 252, 0.12);
     box-shadow: var(--shadow);
+    position: relative;
+    overflow: hidden;
+}
+
+.card::before {
+    content: "";
+    position: absolute;
+    inset: 0 auto auto 0;
+    width: 100%;
+    height: 1px;
+    background: linear-gradient(90deg, rgba(56, 189, 248, 0.34), transparent 42%);
+    pointer-events: none;
 }
 
 .section-heading {
@@ -228,10 +222,10 @@ body::after {
 }
 
 .section-note {
-    max-width: 36ch;
+    max-width: 28ch;
     margin: 0;
     color: var(--muted);
-    font-size: 0.94rem;
+    font-size: 0.88rem;
 }
 
 textarea,
@@ -245,6 +239,49 @@ input {
     padding: 13px 15px;
     font: inherit;
     transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+}
+
+.password-field {
+    position: relative;
+    margin-bottom: 12px;
+}
+
+.password-field input {
+    margin: 0;
+    padding-right: 56px;
+}
+
+.password-toggle {
+    position: absolute;
+    top: 50%;
+    right: 10px;
+    width: 38px;
+    height: 38px;
+    padding: 0;
+    border-radius: 12px;
+    border: 1px solid rgba(125, 211, 252, 0.12);
+    background: rgba(6, 16, 28, 0.92);
+    color: var(--muted);
+    transform: translateY(-50%);
+    box-shadow: none;
+}
+
+.password-field .password-toggle {
+    width: 38px;
+}
+
+.password-toggle:hover {
+    background: rgba(10, 25, 41, 0.96);
+    color: var(--text);
+}
+
+.password-toggle svg {
+    width: 18px;
+    height: 18px;
+    stroke: currentColor;
+    fill: none;
+    stroke-width: 1.8;
+    pointer-events: none;
 }
 
 textarea::placeholder,
@@ -435,7 +472,7 @@ button:active {
     max-width: 34ch;
     margin: 0;
     color: var(--muted);
-    font-size: 0.9rem;
+    font-size: 0.84rem;
 }
 
 .breach-section {
@@ -1099,6 +1136,13 @@ button:active {
     .card,
     .modal-content {
         padding: 20px;
+    }
+
+    .hero-subtitle,
+    .section-note,
+    .lab-note,
+    .privacy-note {
+        font-size: 0.82rem;
     }
 
     .tabs {
