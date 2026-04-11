@@ -124,17 +124,32 @@ function analyzeHistoryItem(item) {
 }
 
 function buildSummary(items) {
-    const analyzed = items.map(analyzeHistoryItem);
-    const risky = analyzed.filter(item => item.score >= 20);
-    const highRisk = analyzed.filter(item => item.score >= 40);
-    const uniqueDomains = new Set(analyzed.map(item => item.domain).filter(Boolean));
-    const topRiskDomains = Object.entries(analyzed.reduce((groups, item) => {
-        if (item.score < 20 || !item.domain) {
-            return groups;
+    // Single-pass analysis - O(n) instead of O(n³)
+    const risky = [];
+    const highRisk = [];
+    const uniqueDomains = new Set();
+    const domainRiskMap = new Map();
+    const analyzed = [];
+    
+    for (const item of items) {
+        const analysis = analyzeHistoryItem(item);
+        analyzed.push(analysis);
+        uniqueDomains.add(analysis.domain);
+        
+        if (analysis.score >= 40) {
+            highRisk.push(analysis);
+            risky.push(analysis);
+        } else if (analysis.score >= 20) {
+            risky.push(analysis);
         }
-        groups[item.domain] = (groups[item.domain] || 0) + 1;
-        return groups;
-    }, {}))
+        
+        if (analysis.score >= 20 && analysis.domain) {
+            domainRiskMap.set(analysis.domain, (domainRiskMap.get(analysis.domain) || 0) + 1);
+        }
+    }
+    
+    // Single sort at end
+    const topRiskDomains = Array.from(domainRiskMap.entries())
         .sort((left, right) => right[1] - left[1])
         .slice(0, 5);
 

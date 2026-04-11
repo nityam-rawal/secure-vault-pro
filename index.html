@@ -1,12 +1,18 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes, viewport-fit=cover">
+    <meta name="theme-color" content="#08111e">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <title>Secure Vault Pro | India Cyber Safety Assistant</title>
+    <!-- SECURITY PATCH: Content Security Policy -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://unpkg.com/peerjs@1.5.2/ 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self' https://*.peerjs.com wss://*.peerjs.com; img-src 'self' data: https:; object-src 'none'; frame-ancestors 'none'; base-uri 'self'; form-action 'none';">
     <link rel="manifest" href="manifest.json">
     <link rel="stylesheet" href="style.css">
-    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+    <link rel="stylesheet" href="mobile-optimization.css">
+    <script async src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
 </head>
 <body>
     <div id="termsModal" class="modal-overlay hidden" aria-hidden="true">
@@ -24,7 +30,7 @@
 
     <div id="shareModal" class="modal-overlay hidden" aria-hidden="true">
         <div class="modal-content share-modal">
-            <button class="modal-close" onclick="closeShareModal()" aria-label="Close share dialog">×</button>
+            <button class="modal-close" onclick="closeShareModal()" aria-label="Close share dialog">Ã—</button>
             <p class="eyebrow">Share Package</p>
             <h2 id="shareModalTitle">Share Securely</h2>
             <p id="shareModalDescription" class="modal-copy"></p>
@@ -49,20 +55,7 @@
                     <span class="feature-pill">Local-first workflow</span>
                 </div>
             </div>
-            <div class="hero-stats">
-                <div class="hero-stat">
-                    <strong>Scam decoder</strong>
-                    <span>Flag pressure tactics, fake links, and payment traps fast</span>
-                </div>
-                <div class="hero-stat">
-                    <strong>Fast recovery</strong>
-                    <span>Move from panic to action with official help paths and checklists</span>
-                </div>
-                <div class="hero-stat">
-                    <strong>Private handoff</strong>
-                    <span>Share safely with links, secure chat, voice, video, and self-destruct mode</span>
-                </div>
-            </div>
+
         </header>
 
         <div class="header-actions">
@@ -83,7 +76,6 @@
                             <p class="eyebrow">Encrypted delivery</p>
                             <h2>File Encryption</h2>
                         </div>
-                        <p class="section-note">Encrypt, download, and share in one clean flow.</p>
                     </div>
 
                     <input type="file" id="fileInput">
@@ -108,7 +100,6 @@
                             <p class="eyebrow">Linked handoff</p>
                             <h2>Text Encryption</h2>
                         </div>
-                        <p class="section-note">Turn encrypted text into a ready link for the receiver.</p>
                     </div>
 
                     <input type="password" id="textPassword" placeholder="Encryption password" oninput="checkTextStrength()">
@@ -140,7 +131,6 @@
                             <p class="eyebrow">India-first safety lab</p>
                             <h2>Scam Decoder, Exposure Audit & Recovery</h2>
                         </div>
-                        <p class="section-note">Decode suspicious messages, review local risk, and share simple help packs.</p>
                     </div>
 
                     <div class="response-strip">
@@ -150,50 +140,7 @@
                         <button class="ghost-btn response-card" onclick="generateAwarenessPack()">Build Awareness Pack</button>
                     </div>
 
-                    <div class="audit-lab-grid crisis-grid">
-                        <div class="audit-lab-card">
-                            <div class="lab-heading">
-                                <div>
-                                    <p class="eyebrow">Fast triage</p>
-                                    <h3>Scam Decoder</h3>
-                                </div>
-                                <p class="lab-note">Paste a suspicious message, support number, URL, or call summary to spot common India scam patterns.</p>
-                            </div>
-                            <div class="scenario-row">
-                                <button type="button" class="ghost-btn scenario-chip" onclick="loadScamDecoderSample('digital-arrest')">Digital arrest</button>
-                                <button type="button" class="ghost-btn scenario-chip" onclick="loadScamDecoderSample('kyc-freeze')">KYC freeze</button>
-                                <button type="button" class="ghost-btn scenario-chip" onclick="loadScamDecoderSample('parcel-customs')">Parcel customs</button>
-                                <button type="button" class="ghost-btn scenario-chip" onclick="loadScamDecoderSample('upi-collect')">UPI collect</button>
-                                <button type="button" class="ghost-btn scenario-chip" onclick="loadScamDecoderSample('job-fee')">Job fee</button>
-                                <button type="button" class="ghost-btn scenario-chip" onclick="loadScamDecoderSample('investment-tip')">Investment tip</button>
-                            </div>
-                            <textarea id="scamInput" placeholder="Paste the suspicious message, WhatsApp text, email, call script, or website copy..."></textarea>
-                            <input type="text" id="scamSourceInput" placeholder="Optional: sender name, phone, UPI ID, support number, or URL">
-                            <div class="btn-row">
-                                <button onclick="analyzeScamText()">Run Scam Decoder</button>
-                                <button class="ghost-btn" onclick="loadScamDecoderSample('digital-arrest')">Load Sample</button>
-                                <button class="ghost-btn" onclick="clearScamDecoder()">Clear</button>
-                            </div>
-                            <div id="scamSummary" class="metric-strip hidden"></div>
-                            <div id="scamResult" class="breach-result hidden"></div>
-                        </div>
 
-                        <div class="audit-lab-card">
-                            <div class="lab-heading">
-                                <div>
-                                    <p class="eyebrow">Share to teach</p>
-                                    <h3>Awareness Studio</h3>
-                                </div>
-                                <p class="lab-note">Generate ready Hindi and Hinglish copy for WhatsApp, Instagram, community groups, and fast family alerts.</p>
-                            </div>
-                            <div class="btn-row">
-                                <button onclick="generateAwarenessPack()">Generate Pack</button>
-                                <button class="ghost-btn" onclick="copyAwarenessCard('family-alert')">Copy Family Alert</button>
-                                <button class="ghost-btn" onclick="copyAwarenessCard('reel-hook')">Copy Reel Hook</button>
-                            </div>
-                            <div id="awarenessPackGrid" class="awareness-grid"></div>
-                        </div>
-                    </div>
 
                     <div class="audit-grid">
                         <div class="breach-section">
@@ -233,7 +180,6 @@
                                     <p class="eyebrow">Import and map</p>
                                     <h3>Saved Account Inventory</h3>
                                 </div>
-                                <p class="lab-note">Import saved accounts to spot reuse, weak secrets, and identity spread.</p>
                             </div>
                             <input type="file" id="accountCsvInput" accept=".csv,.txt,.json">
                             <div class="btn-row">
@@ -250,7 +196,6 @@
                                     <p class="eyebrow">Local history scan</p>
                                     <h3>Visited Site Risk Review</h3>
                                 </div>
-                                <p class="lab-note">Import history or paste URLs to flag risky domains, shorteners, and login bait.</p>
                             </div>
                             <input type="file" id="historyImportInput" accept=".csv,.txt,.json">
                             <textarea id="historyPasteInput" placeholder="Optional: paste URLs or domains, one per line..."></textarea>
@@ -390,3 +335,4 @@
     </script>
 </body>
 </html>
+

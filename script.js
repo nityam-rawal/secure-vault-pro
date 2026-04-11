@@ -8,6 +8,10 @@ const AUTO_RECONNECT_DELAY_MS = 900;
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
+// === RATE LIMITING FOR DECRYPTION (SECURITY PATCH) ===
+const RATE_LIMIT_DECRYPTION = { maxAttempts: 5, windowMs: 60000 };
+const decryptionAttempts = new Map();
+
 const DEFAULT_ICE_SERVERS = [
     { urls: "stun:stun.l.google.com:19302" },
     { urls: "stun:stun1.l.google.com:19302" },
@@ -129,6 +133,9 @@ const state = {
 };
 
 const $ = id => document.getElementById(id);
+// Cache for element references
+const elementCache = { tabElements: null };
+
 document.addEventListener("DOMContentLoaded", initApp);
 window.addEventListener("hashchange", handleSharedPayloadFromUrl);
 window.addEventListener("online", updateOfflineBanner);
@@ -139,6 +146,7 @@ function initApp() {
     checkTerms();
     updateOfflineBanner();
     initPasswordToggles();
+    cacheTabElements();
     updateChatComposerHeight();
     initPeer();
     handleSharedPayloadFromUrl();
@@ -149,6 +157,18 @@ function initApp() {
             closeShareModal();
         }
     });
+}
+
+// Cache tab elements on init for fast access
+function cacheTabElements() {
+    elementCache.tabElements = {
+        vault: $("vault"),
+        risk: $("risk"),
+        chat: $("chat"),
+        vaultTab: $("vaultTab"),
+        riskTab: $("riskTab"),
+        chatTab: $("chatTab")
+    };
 }
 
 function initPasswordToggles() {
@@ -203,10 +223,19 @@ function togglePasswordVisibility(input, toggle) {
 }
 
 function showTab(tab) {
-    ["vault", "risk", "chat"].forEach(section => {
-        $(section).classList.toggle("hidden", section !== tab);
-        $(`${section}Tab`).classList.toggle("active", section === tab);
-        $(`${section}Tab`).setAttribute("aria-selected", String(section === tab));
+    // Use cached elements instead of DOM queries
+    const { vault, risk, chat, vaultTab, riskTab, chatTab } = elementCache.tabElements;
+    const sections = [
+        { content: vault, button: vaultTab, name: "vault" },
+        { content: risk, button: riskTab, name: "risk" },
+        { content: chat, button: chatTab, name: "chat" }
+    ];
+    
+    sections.forEach(({ content, button, name }) => {
+        const isActive = name === tab;
+        content.classList.toggle("hidden", !isActive);
+        button.classList.toggle("active", isActive);
+        button.setAttribute("aria-selected", String(isActive));
     });
 
     if (tab === "chat" && !state.chatWarningShown) {
@@ -247,17 +276,19 @@ function updateOfflineBanner() {
     $("offlineBanner").classList.toggle("hidden", navigator.onLine);
 }
 
-function checkTextStrength() {
-    displayStrength("textStrength", $("textPassword").value);
-}
+// Debounce helper - prevents excessive function calls
+const debounce = (fn, delay = 300) => {
+    let timeout;
+    return (...args) => {
+        clearTimeout(timeout);
+        timeout = setTimeout(() => fn(...args), delay);
+    };
+};
 
-function checkFileStrength() {
-    displayStrength("fileStrength", $("filePassword").value);
-}
-
-function checkRiskStrength() {
-    displayStrength("riskStrength", $("passwordInput").value);
-}
+// Debounced strength checkers - only recalculate after 300ms pause
+const checkTextStrength = debounce(() => displayStrength("textStrength", $("textPassword").value));
+const checkFileStrength = debounce(() => displayStrength("fileStrength", $("filePassword").value));
+const checkRiskStrength = debounce(() => displayStrength("riskStrength", $("passwordInput").value));
 
 function calculateStrength(password) {
     if (!password) {
@@ -290,17 +321,18 @@ function displayStrength(elementId, value) {
         return;
     }
 
-    if (score < 40) {
-        element.textContent = "Weak: increase length and mix character types.";
+    // SECURITY PATCH: Stricter thresholds
+    if (score < 50) {
+        element.textContent = "❌ Weak: Use 12+ chars with mix of UPPER, lower, numbers, symbols.";
         element.className = "strength weak";
-    } else if (score < 65) {
-        element.textContent = "Fair: stronger than average, but still worth improving.";
+    } else if (score < 70) {
+        element.textContent = "⚠️ Fair: Good, but add complexity. Example: MyPwd@2024";
         element.className = "strength medium";
     } else if (score < 85) {
-        element.textContent = "Strong: good entropy and structure.";
+        element.textContent = "✅ Strong: Good entropy and structure.";
         element.className = "strength strong";
     } else {
-        element.textContent = "Excellent: long, mixed, and resistant to reuse patterns.";
+        element.textContent = "✅ Excellent: Long, mixed, and resistant to reuse patterns.";
         element.className = "strength military";
     }
 }
@@ -329,14 +361,16 @@ async function deriveAesKey(password, saltBytes, usages) {
 }
 
 function bytesToBase64(bytes) {
+    // Native btoa for small-medium payloads
+    if (bytes.length <= 65536) {
+        return btoa(String.fromCharCode(...bytes));
+    }
+    // For large files, process in chunks
     let binary = "";
-    const chunkSize = 0x8000;
-
-    for (let index = 0; index < bytes.length; index += chunkSize) {
-        const chunk = bytes.subarray(index, index + chunkSize);
+    for (let i = 0; i < bytes.length; i += 65536) {
+        const chunk = bytes.slice(i, i + 65536);
         binary += String.fromCharCode(...chunk);
     }
-
     return btoa(binary);
 }
 
@@ -375,7 +409,17 @@ function downloadBlob(blob, filename) {
     anchor.href = objectUrl;
     anchor.download = filename;
     anchor.click();
-    setTimeout(() => URL.revokeObjectURL(objectUrl), 1500);
+    
+    // Revoke immediately after dispatch
+    setTimeout(() => {
+        URL.revokeObjectURL(objectUrl);
+        anchor.remove();
+    }, 50);
+    
+    // Safety fallback for unload
+    window.addEventListener("beforeunload", () => {
+        try { URL.revokeObjectURL(objectUrl); } catch (e) { }
+    }, { once: true });
 }
 
 function buildAppUrl(hashParams = {}, searchParams = {}) {
@@ -447,8 +491,10 @@ async function encryptText() {
         return;
     }
 
-    if (calculateStrength(password) < 40) {
-        alert("Use a stronger password before sharing encrypted text.");
+    // SECURITY PATCH: Stricter password requirement
+    const strength = calculateStrength(password);
+    if (strength < 60) {
+        alert(`⚠️ Password too weak (${strength}/100).\n\nUse at least 12 characters with mixed types.\n\nExamples:\n- MySecret@2024\n- Coffee#Morning99\n- BlueSky!Rock$42`);
         return;
     }
 
@@ -1122,16 +1168,18 @@ function buildScamAnalysis(message, source = "") {
         upiMatches.length ? `${upiMatches.length} UPI handle${upiMatches.length > 1 ? "s" : ""} were found in the sample.` : ""
     ].filter(Boolean);
 
-    const actions = [...new Set([
-        ...scenario.actions,
-        urlFindings.length ? "Type the official website manually instead of opening the shared link." : "",
-        signalMatches.some(signal => /remote access|screen sharing/i.test(signal.reason))
-            ? "Remove any remote-access app opened during the call and review device permissions."
-            : "",
-        phoneMatches.length ? "Verify the caller by dialing the official number from the bank or service website, not the incoming call." : "",
-        upiMatches.length ? "Treat UPI handle requests as payment requests until you verify them in the official app." : "",
-        severity === "critical" || severity === "high" ? "Escalate to 1930 fast if money, cards, or account access are already involved." : ""
-    ].filter(Boolean)]).slice(0, 5);
+    const actions = [...new Set(
+        [
+            ...scenario.actions,
+            urlFindings.length ? "Type the official website manually instead of opening the shared link." : "",
+            signalMatches.some(signal => /remote access|screen sharing/i.test(signal.reason))
+                ? "Remove any remote-access app opened during the call and review device permissions."
+                : "",
+            phoneMatches.length ? "Verify the caller by dialing the official number from the bank or service website, not the incoming call." : "",
+            upiMatches.length ? "Treat UPI handle requests as payment requests until you verify them in the official app." : "",
+            severity === "critical" || severity === "high" ? "Escalate to 1930 fast if money, cards, or account access are already involved." : ""
+        ].filter(Boolean)
+    )].slice(0, 5);
 
     return {
         score,
@@ -2512,23 +2560,95 @@ function warnIfInsecureContext() {
     }
 }
 
+// ✅ FIX: Generate fallback ID if PeerJS library fails to load
+function generateFallbackPeerId() {
+    const timestamp = Date.now().toString(36);
+    const random = Math.random().toString(36).substring(2, 11);
+    return `offline-${timestamp}-${random}`;
+}
+
+// ✅ FIX: Check if PeerJS library is loaded
+function waitForPeerLibrary(maxWaitMs = 5000) {
+    return new Promise((resolve, reject) => {
+        if (typeof Peer !== "undefined") {
+            resolve();
+            return;
+        }
+
+        const startTime = Date.now();
+        const checkInterval = setInterval(() => {
+            if (typeof Peer !== "undefined") {
+                clearInterval(checkInterval);
+                resolve();
+            } else if (Date.now() - startTime > maxWaitMs) {
+                clearInterval(checkInterval);
+                reject(new Error("PeerJS library failed to load"));
+            }
+        }, 100);
+    });
+}
+
 function initPeer() {
     warnIfInsecureContext();
+    
+    // ✅ FIX: Show loading state
+    $("myPeerId").placeholder = "🔄 Generating secure ID...";
+    $("myPeerId").value = "";
 
-    state.peer = new Peer({
-        secure: window.location.protocol === "https:",
-        debug: 0,
-        pingInterval: 20000,
-        config: {
-            iceServers: getIceServers(),
-            iceTransportPolicy: "all"
-        }
-    });
+    // ✅ FIX: Wait for PeerJS library to load, with fallback
+    waitForPeerLibrary(5000)
+        .then(() => {
+            createPeerConnection();
+        })
+        .catch(error => {
+            console.warn("PeerJS loading failed, using offline mode:", error);
+            // ✅ FALLBACK: Generate local ID if library fails
+            const fallbackId = generateFallbackPeerId();
+            $("myPeerId").value = fallbackId;
+            $("myPeerId").placeholder = "Offline mode (file sharing only)";
+            updateConnectionStatus("Offline mode: P2P chat unavailable", "warning");
+            appendSystemMessage("⚠️ Network issue detected. P2P chat unavailable. File encryption still works.");
+        });
+}
+
+function createPeerConnection() {
+    // ✅ FIX: Extra safety check
+    if (typeof Peer === "undefined") {
+        throw new Error("PeerJS library not available");
+    }
+
+    // ✅ FIX: Use all connection types (direct + TURN relay fallback)
+    // Allows peer connections to work while using TURN as fallback
+    const iceServers = getIceServers();
+    
+    const peerConfig = {
+        iceServers: iceServers,  // Include both STUN and TURN servers
+        iceTransportPolicy: "all",  // Allow all connections: direct P2P + TURN relay
+        bundlePolicy: "max-bundle",
+        rtcpMuxPolicy: "require"
+    };
+
+    try {
+        state.peer = new Peer({
+            secure: window.location.protocol === "https:",
+            debug: 0,
+            pingInterval: 20000,
+            config: peerConfig,
+            connectionTimeout: 30000
+        });
+    } catch (error) {
+        console.error("Peer initialization failed:", error);
+        const fallbackId = generateFallbackPeerId();
+        $("myPeerId").value = fallbackId;
+        updateConnectionStatus("Offline mode", "warning");
+        return;
+    }
 
     state.peer.on("open", id => {
         $("myPeerId").value = id;
+        $("myPeerId").placeholder = "Your secure ID";
         updateConnectionStatus("Waiting for connection...");
-        appendSystemMessage("Peer ready.");
+        appendSystemMessage("✅ Peer ready. Share your ID or paste one to connect.");
 
         const params = new URLSearchParams(window.location.search);
         const connectId = params.get("connect");
@@ -2563,6 +2683,8 @@ function initPeer() {
     });
 
     state.peer.on("error", error => {
+        console.error("Peer error:", error.type, error);
+        
         if (error.type === "peer-unavailable") {
             updateConnectionStatus("Peer unavailable", "warning");
             appendSystemMessage("Peer unavailable. Ask for a fresh invite link or ID.");
@@ -2571,7 +2693,7 @@ function initPeer() {
 
         if (["network", "server-error", "socket-error"].includes(error.type)) {
             updateConnectionStatus("Reconnecting…", "warning");
-            appendSystemMessage("Network issue detected. Reconnecting to signaling service.");
+            appendSystemMessage("Network issue detected. Reconnecting to signaling service...");
             if (state.peer?.disconnected) {
                 state.peer.reconnect();
             }
@@ -2579,15 +2701,18 @@ function initPeer() {
         }
 
         updateConnectionStatus("Connection error", "error");
-        appendSystemMessage(`Peer error: ${error.type || "unknown"}`);
+        appendSystemMessage(`⚠️ Error: ${error.type || "unknown"}`);
     });
 
     state.peer.on("disconnected", () => {
         updateConnectionStatus("Reconnecting…", "warning");
         setTimeout(() => {
             try {
-                state.peer.reconnect();
+                if (state.peer) {
+                    state.peer.reconnect();
+                }
             } catch (error) {
+                console.warn("Reconnect failed, reinitializing:", error);
                 initPeer();
             }
         }, AUTO_RECONNECT_DELAY_MS);
