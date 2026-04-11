@@ -1,43 +1,81 @@
+/* === UTILITY CLASSES === */
+.desktop-only {
+    display: block;
+}
+
+.mobile-only {
+    display: none;
+}
+
+@media (max-width: 768px) {
+    .desktop-only {
+        display: none !important;
+    }
+
+    .mobile-only {
+        display: block !important;
+    }
+}
+
 /* === AGGRESSIVE MOBILE OPTIMIZATION (480px and below) === */
 @media (max-width: 480px) {
     :root {
-        --radius: 14px;
+        --radius: 12px;
     }
 
     html {
-        font-size: 14px;
-    }
-
-    body {
         font-size: 13px;
     }
 
+    body {
+        font-size: 12px;
+        line-height: 1.4;
+    }
+
     .app-shell {
-        padding: 10px 10px 32px;
+        padding: 8px 8px 32px;
+        max-width: 100%;
     }
 
     h1 {
-        font-size: 1.5rem;
+        font-size: 1.3rem;
+        margin: 4px 0;
     }
 
     h2 {
-        font-size: 1.2rem;
+        font-size: 1.1rem;
+        margin: 4px 0;
     }
 
-    .hero-card,
-    .card {
+    h3 {
+        font-size: 0.95rem;
+        margin: 3px 0;
+    }
+
+    .hero-card {
         padding: 12px;
-        gap: 12px;
+        gap: 0;
         border-radius: var(--radius);
+        grid-template-columns: 1fr;
+        margin-bottom: 12px;
     }
 
     .hero-subtitle {
-        font-size: 0.75rem;
+        font-size: 0.8rem;
+        margin: 4px 0 8px;
     }
 
     .feature-pill {
-        padding: 6px 10px;
-        font-size: 11px;
+        padding: 4px 8px;
+        font-size: 10px;
+        display: none;
+    }
+
+    .card {
+        padding: 10px;
+        gap: 8px;
+        border-radius: var(--radius);
+        margin-bottom: 8px;
     }
 
     .tabs {
@@ -45,10 +83,10 @@
         grid-template-columns: repeat(3, 1fr);
     }
 
-    .tab-btn {
-        padding: 8px 10px;
-        font-size: 12px;
-        border-radius: 10px;
+    .tabs button {
+        padding: 8px 8px;
+        font-size: 11px;
+        border-radius: 8px;
     }
 
     input,
@@ -56,22 +94,42 @@
     select,
     button {
         font-size: 16px; /* Prevents zoom on iOS */
-        border-radius: 10px;
-        padding: 10px 12px;
+        border-radius: 8px;
+        padding: 9px 10px;
     }
 
     input[type="text"],
     input[type="email"],
     input[type="password"],
+    input[type="tel"],
+    input[type="number"],
     textarea {
         width: 100%;
-        margin-bottom: 8px;
+        margin-bottom: 6px;
     }
 
     button {
-        min-height: 44px; /* Touch-friendly size */
+        min-height: 42px;
         width: 100%;
-        padding: 12px 14px;
+        padding: 10px 10px;
+        font-size: 13px;
+    }
+
+    .btn-row {
+        gap: 6px;
+        flex-wrap: wrap;
+    }
+
+    .btn-row button {
+        flex: 1;
+        min-width: 70px;
+        padding: 9px 8px;
+        font-size: 11px;
+    }
+
+    .ghost-btn {
+        background: var(--panel);
+        border: 1px solid var(--panel-border);
     }
 
     .my-id-box,
@@ -85,26 +143,26 @@
     .connect-box input {
         width: 100%;
         word-break: break-all;
-        font-size: 13px;
-        padding: 10px;
+        font-size: 12px;
+        padding: 9px;
     }
 
     .my-id-box button,
     .connect-box button {
         width: 100%;
-        font-size: 12px;
-        padding: 10px 12px;
+        font-size: 11px;
+        padding: 9px 10px;
     }
 
     .chat-container {
-        max-height: 40vh;
-        border-radius: 10px;
+        max-height: 35vh;
+        border-radius: 8px;
     }
 
     .chat-msg {
-        max-width: 90%;
-        font-size: 13px;
-        padding: 8px 12px;
+        max-width: 88%;
+        font-size: 12px;
+        padding: 7px 10px;
         word-wrap: break-word;
         word-break: break-word;
     }
@@ -113,36 +171,46 @@
     .audit-grid,
     .audit-lab-grid {
         grid-template-columns: 1fr;
-        gap: 12px;
+        gap: 10px;
+    }
+
+    .breach-section {
+        padding: 10px;
+        border-radius: 8px;
+    }
+
+    .breach-section h3 {
+        margin: 0 0 6px 0;
     }
 
     .modal-content {
-        width: 92vw;
-        max-height: 88vh;
-        padding: 14px;
-        border-radius: 14px;
+        width: 95vw;
+        max-height: 90vh;
+        padding: 12px;
+        border-radius: 12px;
+        max-width: 90%;
     }
 
     .modal-close {
-        width: 32px;
-        height: 32px;
-        font-size: 24px;
+        width: 30px;
+        height: 30px;
+        font-size: 20px;
     }
 
     label {
-        font-size: 12px;
-        margin-bottom: 4px;
+        font-size: 11px;
+        margin-bottom: 3px;
         display: block;
     }
 
     .checkbox-row,
     .radio-row {
-        gap: 8px;
+        gap: 6px;
         flex-wrap: wrap;
     }
 
     .self-view {
-        width: min(120px, 48%);
+        width: min(100px, 45%);
         height: auto;
     }
 
@@ -163,6 +231,291 @@
 
     /* Prevent double-tap zoom on double-tap */
     input,
+    button,
+    a {
+        touch-action: manipulation;
+    }
+
+    .section-heading {
+        grid-template-columns: 1fr;
+    }
+
+    .strength {
+        margin: 4px 0;
+        font-size: 11px;
+    }
+
+    .response-strip {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 8px;
+    }
+
+    .response-card {
+        padding: 10px 8px;
+        font-size: 12px;
+        text-align: center;
+    }
+
+    .metric-strip, .insight-grid, .playbook-grid {
+        grid-template-columns: 1fr;
+        gap: 8px;
+    }
+
+    .wheel svg {
+        width: 120px;
+        height: 120px;
+        margin: 10px auto;
+    }
+
+    .wheel {
+        display: flex;
+        justify-content: center;
+        margin: 10px 0;
+    }
+
+    .advice-section,
+    .breach-timeline {
+        font-size: 12px;
+        padding: 8px;
+    }
+
+    .privacy-note {
+        font-size: 10px;
+        margin: 6px 0;
+        line-height: 1.3;
+    }
+}
+
+/* === TABLET OPTIMIZATION (481px - 768px) === */
+@media (max-width: 768px) and (min-width: 481px) {
+    :root {
+        --radius: 16px;
+    }
+
+    html {
+        font-size: 13.5px;
+    }
+
+    .app-shell {
+        padding: 12px 12px 40px;
+    }
+
+    h1 {
+        font-size: 1.4rem;
+    }
+
+    h2 {
+        font-size: 1.15rem;
+    }
+
+    .hero-card {
+        padding: 14px;
+        gap: 12px;
+        grid-template-columns: 1fr;
+        margin-bottom: 14px;
+    }
+
+    .hero-subtitle {
+        font-size: 0.85rem;
+    }
+
+    .card {
+        padding: 12px;
+        gap: 10px;
+    }
+
+    .tabs button {
+        padding: 10px 12px;
+        font-size: 12px;
+    }
+
+    input,
+    textarea,
+    button {
+        font-size: 15px;
+        padding: 10px 12px;
+        border-radius: 10px;
+    }
+
+    button {
+        min-height: 44px;
+    }
+
+    .btn-row button {
+        padding: 10px 12px;
+        font-size: 12px;
+    }
+
+    .chat-container {
+        max-height: 45vh;
+    }
+
+    .chat-msg {
+        max-width: 85%;
+        font-size: 13px;
+        padding: 8px 12px;
+    }
+
+    .section-grid,
+    .audit-grid {
+        grid-template-columns: 1fr;
+        gap: 12px;
+    }
+
+    .audit-lab-grid {
+        grid-template-columns: 1fr;
+        gap: 12px;
+    }
+
+    .modal-content {
+        width: 90vw;
+        max-height: 85vh;
+        padding: 16px;
+    }
+
+    .strength {
+        margin: 6px 0;
+    }
+
+    .response-strip {
+        grid-template-columns: repeat(2, 1fr);
+        gap: 8px;
+    }
+
+    .response-card {
+        padding: 12px;
+        font-size: 12px;
+    }
+
+    .metric-strip,
+    .insight-grid,
+    .playbook-grid {
+        grid-template-columns: repeat(2, 1fr);
+        gap: 10px;
+    }
+
+    .wheel svg {
+        width: 150px;
+        height: 150px;
+        margin: 12px auto;
+    }
+}
+
+/* === COMPACT PHONE OPTIMIZATION (360px - 480px) === */
+@media (max-width: 360px) {
+    :root {
+        --radius: 10px;
+    }
+
+    html {
+        font-size: 12px;
+    }
+
+    .app-shell {
+        padding: 6px 6px 28px;
+    }
+
+    h1 {
+        font-size: 1.1rem;
+    }
+
+    h2 {
+        font-size: 0.95rem;
+    }
+
+    .hero-card,
+    .card {
+        padding: 8px;
+        gap: 6px;
+    }
+
+    .btn-row button {
+        min-width: 60px;
+        padding: 8px 6px;
+        font-size: 10px;
+    }
+
+    .hero-subtitle {
+        font-size: 0.7rem;
+    }
+
+    input,
+    textarea,
+    button {
+        font-size: 15px;
+        padding: 8px 8px;
+    }
+
+    .chat-msg {
+        font-size: 11px;
+        padding: 6px 8px;
+    }
+
+    label {
+        font-size: 10px;
+    }
+
+    .strength {
+        font-size: 10px;
+    }
+
+    .response-strip {
+        grid-template-columns: 1fr;
+    }
+
+    .wheel svg {
+        width: 100px;
+        height: 100px;
+    }
+}
+
+/* === LANDSCAPE PHONE OPTIMIZATION (max-height: 500px) === */
+@media (max-height: 500px) and (orientation: landscape) {
+    .hero-card {
+        padding: 8px;
+        margin-bottom: 8px;
+    }
+
+    .card {
+        padding: 8px;
+        margin-bottom: 6px;
+    }
+
+    h1, h2, h3 {
+        margin: 2px 0;
+    }
+
+    .hero-subtitle,
+    .section-note {
+        display: none;
+    }
+
+    button {
+        min-height: 38px;
+        padding: 8px 10px;
+        font-size: 12px;
+    }
+
+    input, textarea {
+        padding: 8px 8px;
+        margin-bottom: 4px;
+    }
+
+    .chat-container {
+        max-height: 25vh;
+    }
+
+    .response-strip {
+        grid-template-columns: repeat(2, 1fr);
+        gap: 6px;
+    }
+
+    .response-card {
+        padding: 8px 6px;
+        font-size: 11px;
+    }
+}
     button,
     a {
         touch-action: manipulation;
