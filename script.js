@@ -117,6 +117,8 @@ const state = {
         accountSummary: null,
         historyEntries: [],
         historySummary: null,
+        osintDorks: [],
+        osintReview: null,
         scamAnalysis: null,
         awarenessPack: [],
         lastAuditReport: null
@@ -1912,6 +1914,221 @@ function clearHistoryImport() {
     renderAttackSurfaceInsights();
 }
 
+function getOsintReviewInputs() {
+    const domain = normalizeHostname($("osintDomainInput").value);
+    const brands = $("osintBrandInput").value
+        .split(",")
+        .map(item => item.trim())
+        .filter(Boolean)
+        .slice(0, 6);
+
+    return {
+        domain,
+        brands,
+        pastedFindings: $("osintPasteInput").value
+            .split(/\r?\n/)
+            .map(line => line.trim())
+            .filter(Boolean)
+            .slice(0, 250)
+    };
+}
+
+function buildOsintDorkSet(domain, brands = []) {
+    const identityTerms = [domain, ...brands].filter(Boolean);
+    const brandQuery = identityTerms.length
+        ? `(${identityTerms.map(term => `"${term.replace(/"/g, "")}"`).join(" OR ")})`
+        : "";
+    const dorks = [];
+
+    if (domain) {
+        dorks.push({
+            label: "Public files on your domain",
+            query: `site:${domain} (filetype:pdf OR filetype:xlsx OR filetype:csv OR filetype:sql OR filetype:env OR filetype:log)`
+        });
+        dorks.push({
+            label: "Directory listing and backups",
+            query: `site:${domain} (intitle:"index of" OR "backup" OR "dump" OR "db.sql" OR ".env")`
+        });
+        dorks.push({
+            label: "Public login or admin surface",
+            query: `site:${domain} (inurl:admin OR inurl:login OR inurl:dashboard OR inurl:wp-admin)`
+        });
+    }
+
+    if (brandQuery) {
+        dorks.push({
+            label: "Secrets mentioned outside your site",
+            query: `${brandQuery} ("api_key" OR "secret" OR "password" OR "token" OR "private key")${domain ? ` -site:${domain}` : ""}`
+        });
+        dorks.push({
+            label: "Code repository exposure",
+            query: `site:github.com OR site:gitlab.com ${brandQuery} ("api_key" OR ".env" OR "config" OR "database_url")`
+        });
+        dorks.push({
+            label: "Paste and dump mentions",
+            query: `(site:pastebin.com OR site:ghostbin.co OR site:rentry.co) ${brandQuery}`
+        });
+        dorks.push({
+            label: "Shared document exposure",
+            query: `(site:docs.google.com OR site:drive.google.com) ${brandQuery}`
+        });
+    }
+
+    return dorks.slice(0, 10);
+}
+
+function renderOsintDorks(dorks) {
+    const target = $("osintDorkResult");
+    target.innerHTML = `
+        <b>Passive dork queue</b>
+        <p>Run these in your search engine while logged out where possible. Review only public results you are authorized to assess.</p>
+        <div class="dork-list">
+            ${dorks.map((item, index) => `
+                <div class="dork-item">
+                    <code>${escapeHtml(item.query)}</code>
+                    <button class="ghost-btn" onclick="copyOsintDork(${index})">Copy</button>
+                </div>
+            `).join("")}
+        </div>
+    `;
+    target.classList.remove("hidden");
+}
+
+async function copyOsintDork(index) {
+    const item = state.auditData.osintDorks[index];
+    if (!item) {
+        return;
+    }
+
+    try {
+        await navigator.clipboard.writeText(item.query);
+        showBanner("OSINT dork copied.", "success");
+    } catch (error) {
+        alert(item.query);
+    }
+}
+
+function generateOsintDorks() {
+    const { domain, brands } = getOsintReviewInputs();
+
+    if (!domain && !brands.length) {
+        alert("Add a domain, brand, app, or company alias first.");
+        return;
+    }
+
+    const dorks = buildOsintDorkSet(domain, brands);
+    state.auditData.osintDorks = dorks;
+    renderMetricStrip("osintSummary", [
+        { value: dorks.length, label: "safe dorks" },
+        { value: domain ? 1 : 0, label: "owned domains" },
+        { value: brands.length, label: "brand aliases" }
+    ]);
+    renderOsintDorks(dorks);
+    renderAttackSurfaceInsights();
+}
+
+function scoreOsintFinding(line, domain, brands) {
+    const lower = line.toLowerCase();
+    const weights = [
+        { pattern: /(api[_-]?key|secret|token|bearer|private key|database_url|mongodb|firebase)/i, score: 35, reason: "secret or credential keyword" },
+        { pattern: /(password|passwd|pwd|credentials?|login dump)/i, score: 30, reason: "password or credential wording" },
+        { pattern: /(dump|backup|db\.sql|\.env|config|\.log|\.bak|\.old)/i, score: 24, reason: "backup, config, or log exposure hint" },
+        { pattern: /(intitle:index of|index of|directory listing)/i, score: 22, reason: "directory listing signal" },
+        { pattern: /(pastebin|ghostbin|rentry|github|gitlab|bitbucket)/i, score: 16, reason: "third-party publication surface" },
+        { pattern: /(xlsx|csv|sql|json|xml|pdf)/i, score: 10, reason: "downloadable document or data file" }
+    ];
+    const matched = weights.filter(item => item.pattern.test(lower));
+    const identityHit = Boolean(domain && lower.includes(domain)) || brands.some(brand => lower.includes(brand.toLowerCase()));
+    const score = Math.min(100, matched.reduce((sum, item) => sum + item.score, identityHit ? 12 : 0));
+    const severity = score >= 65 ? "critical" : score >= 42 ? "high" : score >= 22 ? "medium" : "low";
+    const url = readUrlCandidate(line);
+    const host = url ? normalizeHostname(url) : "";
+
+    return {
+        line,
+        score,
+        severity,
+        host,
+        identityHit,
+        reasons: matched.map(item => item.reason)
+    };
+}
+
+function analyzeOsintFindings() {
+    const { domain, brands, pastedFindings } = getOsintReviewInputs();
+
+    if (!domain && !brands.length) {
+        alert("Add the domain or brand you are authorized to review first.");
+        return;
+    }
+
+    if (!pastedFindings.length) {
+        alert("Paste search result URLs or snippets first.");
+        return;
+    }
+
+    const findings = pastedFindings.map(line => scoreOsintFinding(line, domain, brands));
+    const critical = findings.filter(item => item.severity === "critical");
+    const high = findings.filter(item => item.severity === "high");
+    const medium = findings.filter(item => item.severity === "medium");
+    const identityMatches = findings.filter(item => item.identityHit);
+    const hosts = [...new Set(findings.map(item => item.host).filter(Boolean))];
+    const topFindings = findings
+        .filter(item => item.score >= 22)
+        .sort((left, right) => right.score - left.score)
+        .slice(0, 8);
+    const review = {
+        domain,
+        brands,
+        totalFindings: findings.length,
+        criticalCount: critical.length,
+        highCount: high.length,
+        mediumCount: medium.length,
+        identityMatches: identityMatches.length,
+        hosts,
+        topFindings
+    };
+
+    state.auditData.osintReview = review;
+    renderMetricStrip("osintSummary", [
+        { value: review.totalFindings, label: "reviewed lines" },
+        { value: review.criticalCount + review.highCount, label: "urgent leads" },
+        { value: review.identityMatches, label: "identity matches" },
+        { value: review.hosts.length, label: "public hosts" }
+    ]);
+
+    const lines = [
+        critical.length || high.length
+            ? `${critical.length + high.length} urgent public lead(s) need manual verification and takedown triage.`
+            : "No critical/high public leak indicators were found in the pasted lines.",
+        medium.length ? `${medium.length} medium-risk line(s) mention backups, documents, or publication surfaces.` : "No medium-risk leak indicators were found.",
+        hosts.length ? `Observed public hosts: ${hosts.slice(0, 6).join(", ")}.` : "No valid hosts were extracted from the pasted lines.",
+        "Do not download unknown dumps. Preserve URLs, timestamps, screenshots, and headers for a chain-of-custody note."
+    ];
+
+    if (topFindings.length) {
+        lines.push(`Top lead: ${topFindings[0].severity.toUpperCase()} - ${topFindings[0].reasons.join(", ") || "identity-linked public mention"}.`);
+    }
+
+    $("osintFindingResult").innerHTML = formatList(lines);
+    $("osintFindingResult").classList.remove("hidden");
+    renderAttackSurfaceInsights();
+}
+
+function clearOsintReview() {
+    $("osintDomainInput").value = "";
+    $("osintBrandInput").value = "";
+    $("osintPasteInput").value = "";
+    $("osintDorkResult").classList.add("hidden");
+    $("osintDorkResult").innerHTML = "";
+    $("osintFindingResult").classList.add("hidden");
+    $("osintFindingResult").innerHTML = "";
+    hideMetricStrip("osintSummary");
+    state.auditData.osintDorks = [];
+    state.auditData.osintReview = null;
+    renderAttackSurfaceInsights();
+}
+
 function renderInsightGrid(cards) {
     const target = $("auditInsightGrid");
     target.innerHTML = cards.map(card => `
@@ -1929,9 +2146,10 @@ function renderAttackSurfaceInsights(primaryEmail = $("emailInput").value.trim()
     const accountSummary = state.auditData.accountSummary;
     const historySummary = state.auditData.historySummary;
     const scamAnalysis = state.auditData.scamAnalysis;
+    const osintReview = state.auditData.osintReview;
     const attackSurfaceResult = $("attackSurfaceResult");
 
-    if (!accountSummary && !historySummary && !scamAnalysis) {
+    if (!accountSummary && !historySummary && !scamAnalysis && !osintReview) {
         $("auditInsightGrid").innerHTML = "";
         attackSurfaceResult.classList.add("hidden");
         attackSurfaceResult.innerHTML = "";
@@ -1943,6 +2161,7 @@ function renderAttackSurfaceInsights(primaryEmail = $("emailInput").value.trim()
     const historyOverlap = historySummary?.overlapping?.length || 0;
     const riskyHistory = historySummary?.highRiskCount || 0;
     const riskyLoginBait = historySummary?.suspiciousLogins?.length || 0;
+    const urgentOsint = (osintReview?.criticalCount || 0) + (osintReview?.highCount || 0);
 
     const cards = [
         ...(scamAnalysis ? [{
@@ -1984,6 +2203,15 @@ function renderAttackSurfaceInsights(primaryEmail = $("emailInput").value.trim()
                 historySummary ? `${riskyLoginBait} login-bait URLs were found.` : "Login-bait scan unavailable until history import.",
                 historySummary ? `${historyOverlap} visited domains overlap with imported account domains.` : "No account-history overlap measured yet."
             ]
+        },
+        {
+            title: "Public leak surface",
+            summary: "Search-only OSINT clues that reconstruct where your data may be publicly exposed.",
+            items: [
+                osintReview ? `${urgentOsint} urgent public leak lead(s) from pasted results.` : "Generate dorks and paste reviewed search results to map leak leads.",
+                osintReview ? `${osintReview.identityMatches} result line(s) matched the reviewed domain or brand.` : "No OSINT findings analyzed yet.",
+                osintReview?.hosts?.length ? `Public hosts observed: ${osintReview.hosts.slice(0, 3).join(", ")}.` : "No external public hosts recorded yet."
+            ]
         }
     ];
 
@@ -2003,7 +2231,10 @@ function renderAttackSurfaceInsights(primaryEmail = $("emailInput").value.trim()
                 : "Set a primary email to measure direct account linkage.",
         riskyHistory
             ? `${riskyHistory} high-risk visited URLs deserve manual review before reusing credentials on similar domains.`
-            : "No high-risk browsing pattern has been flagged from the imported history."
+            : "No high-risk browsing pattern has been flagged from the imported history.",
+        urgentOsint
+            ? `${urgentOsint} public OSINT lead(s) should be verified, preserved, and triaged for takedown.`
+            : "No urgent public leak lead has been confirmed from OSINT review."
     ];
 
     attackSurfaceResult.innerHTML = formatList(summaryLines);
@@ -2022,9 +2253,11 @@ function buildAuditReportPayload(options = {}) {
     const accountSummary = state.auditData.accountSummary;
     const historySummary = state.auditData.historySummary;
     const scamAnalysis = state.auditData.scamAnalysis;
+    const osintReview = state.auditData.osintReview;
     const riskyHistory = historySummary?.highRiskCount || 0;
     const mediumHistory = historySummary?.mediumRiskCount || 0;
     const largestReuseCluster = accountSummary?.passwordGroups?.[0]?.length || 0;
+    const urgentOsint = (osintReview?.criticalCount || 0) + (osintReview?.highCount || 0);
     const attackSummary = [
         ...(scamAnalysis
             ? [`Scam Decoder flagged a ${scamAnalysis.severity} risk ${scamAnalysis.scenarioLabel.toLowerCase()} pattern.`]
@@ -2037,7 +2270,10 @@ function buildAuditReportPayload(options = {}) {
             : "No saved-account inventory was imported.",
         historySummary
             ? `${riskyHistory} high-risk and ${mediumHistory} medium-risk history entries were flagged.`
-            : "No history import was analyzed."
+            : "No history import was analyzed.",
+        osintReview
+            ? `${urgentOsint} urgent public OSINT lead(s) were found across ${osintReview.hosts.length} host(s).`
+            : "No public OSINT leak review was analyzed."
     ];
 
     return {
@@ -2055,7 +2291,8 @@ function buildAuditReportPayload(options = {}) {
         },
         importedData: {
             accountEntries: state.auditData.accountEntries.length,
-            historyEntries: state.auditData.historyEntries.length
+            historyEntries: state.auditData.historyEntries.length,
+            osintFindings: osintReview?.totalFindings || 0
         },
         accountSummary: accountSummary ? {
             totalAccounts: accountSummary.totalAccounts,
@@ -2085,6 +2322,24 @@ function buildAuditReportPayload(options = {}) {
             actions: scamAnalysis.actions,
             indicators: scamAnalysis.indicators
         } : null,
+        osintSummary: osintReview ? {
+            domain: osintReview.domain,
+            brands: osintReview.brands,
+            dorksGenerated: state.auditData.osintDorks.length,
+            totalFindings: osintReview.totalFindings,
+            criticalCount: osintReview.criticalCount,
+            highCount: osintReview.highCount,
+            mediumCount: osintReview.mediumCount,
+            identityMatches: osintReview.identityMatches,
+            hosts: osintReview.hosts,
+            topFindings: osintReview.topFindings.map(item => ({
+                severity: item.severity,
+                score: item.score,
+                host: item.host,
+                reasons: item.reasons,
+                line: item.line
+            }))
+        } : null,
         awarenessPack: state.auditData.awarenessPack.map(card => ({
             id: card.id,
             channel: card.channel,
@@ -2100,8 +2355,10 @@ function exportAuditReport(format = "json") {
     const hasData = Boolean(
         report.profile.primaryEmail ||
         report.scamSummary ||
+        report.osintSummary ||
         state.auditData.accountEntries.length ||
         state.auditData.historyEntries.length ||
+        state.auditData.osintDorks.length ||
         state.auditData.awarenessPack.length ||
         $("resultText").textContent.trim()
     );
@@ -2125,6 +2382,7 @@ function exportAuditReport(format = "json") {
             `Contacts: ${report.profile.contacts}`,
             `Password strength: ${report.profile.passwordStrength}`,
             report.scamSummary ? `Scam Decoder: ${report.scamSummary.severity} risk ${report.scamSummary.scenario}` : "Scam Decoder: not run",
+            report.osintSummary ? `OSINT Review: ${report.osintSummary.criticalCount + report.osintSummary.highCount} urgent leads across ${report.osintSummary.hosts.length} hosts` : "OSINT Review: not run",
             "",
             "Attack summary:",
             ...report.attackSummary.map(item => `- ${item}`),
@@ -2397,6 +2655,7 @@ async function runComprehensiveScan() {
     const contacts = Number($("contactInput").value) || 0;
     const recoveryProvider = $("recoveryProviderInput").value.trim();
     const scamAnalysis = state.auditData.scamAnalysis;
+    const osintReview = state.auditData.osintReview;
 
     const provider = detectEmailProvider(email);
     const passwordStrength = calculateStrength(password);
@@ -2431,6 +2690,17 @@ async function runComprehensiveScan() {
                 - Math.min(22, state.auditData.historySummary.suspiciousLogins.length * 4)
         )
         : 54;
+
+    const urgentOsint = (osintReview?.criticalCount || 0) + (osintReview?.highCount || 0);
+    const osintScore = osintReview
+        ? Math.max(
+            8,
+            92
+                - Math.min(48, osintReview.criticalCount * 24)
+                - Math.min(30, osintReview.highCount * 15)
+                - Math.min(12, osintReview.mediumCount * 4)
+        )
+        : state.auditData.osintDorks.length ? 64 : 52;
 
     const metrics = [
         {
@@ -2494,6 +2764,16 @@ async function runComprehensiveScan() {
                 : "Scam Decoder has not been run yet."
         },
         {
+            label: "Public leak posture",
+            weight: 12,
+            score: osintScore,
+            summary: osintReview
+                ? `${urgentOsint} urgent OSINT lead(s) and ${osintReview.identityMatches} identity-linked line(s).`
+                : state.auditData.osintDorks.length
+                    ? "Dork queue generated, but findings have not been analyzed."
+                    : "No public OSINT leak review performed."
+        },
+        {
             label: "Device readiness",
             weight: 10,
             score: scoreDeviceSignals(),
@@ -2509,6 +2789,7 @@ async function runComprehensiveScan() {
             ? [`Treat the current message as ${scamAnalysis.scenarioLabel.toLowerCase()} until you verify it from an official source.`]
             : []),
         passwordBreached ? "Rotate the tested password before continuing to lower-priority accounts." : "Keep the tested password unique even if it looked healthy.",
+        urgentOsint ? "Verify public OSINT leads, preserve evidence, and start takedown or secret-rotation triage." : "Run passive OSINT dorks for your domain and brand before publishing sensitive releases.",
         email.includes("+") ? "Keep alias-style addressing for new signups." : "Start using aliases or service-specific addresses for risky signups.",
         contacts > 750 ? "Reduce over-shared address books where possible." : "Keep high-value contacts compartmentalized from public-facing apps.",
         recoveryProvider ? `Review the backup mailbox or provider you listed: ${recoveryProvider}.` : "Add and audit a dedicated recovery channel that is different from the primary inbox."

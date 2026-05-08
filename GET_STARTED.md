@@ -205,3 +205,16 @@ If you find issues, check the troubleshooting guide above or review SECURE_ID_FI
 **Status:** ✅ Deployment Complete  
 **Version:** 2.1 (Secure ID + Mobile Responsive)  
 **Ready:** YES
+
+---
+
+## Passive OSINT Leak Review
+
+The Safety Lab now includes a defensive **Data Leak Dork Review** workflow for authorized checks of your own web presence.
+
+1. Enter your domain and brand/app aliases.
+2. Click **Build Dorks** to generate passive search queries.
+3. Paste public result URLs or snippets into the findings box.
+4. Click **Analyze Findings** and include the result in the audit export.
+
+See `OSINT_LEAK_REVIEW.md` for the safe operating rules and triage checklist.

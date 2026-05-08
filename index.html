@@ -207,6 +207,27 @@
                             <div id="historyImportSummary" class="metric-strip hidden"></div>
                             <div id="historyImportResult" class="breach-result hidden"></div>
                         </div>
+
+                        <div class="audit-lab-card audit-lab-card-wide">
+                            <div class="lab-heading">
+                                <div>
+                                    <p class="eyebrow">Passive OSINT</p>
+                                    <h3>Data Leak Dork Review</h3>
+                                </div>
+                                <p class="lab-note">Authorized, search-only checks for your domains and brand names.</p>
+                            </div>
+                            <input type="text" id="osintDomainInput" placeholder="Primary domain, e.g. example.com">
+                            <input type="text" id="osintBrandInput" placeholder="Brand, app, or company aliases, comma separated">
+                            <textarea id="osintPasteInput" placeholder="Paste search result URLs/snippets or suspicious public findings, one per line..."></textarea>
+                            <div class="btn-row">
+                                <button onclick="generateOsintDorks()">Build Dorks</button>
+                                <button onclick="analyzeOsintFindings()">Analyze Findings</button>
+                                <button class="ghost-btn" onclick="clearOsintReview()">Clear OSINT</button>
+                            </div>
+                            <div id="osintSummary" class="metric-strip hidden"></div>
+                            <div id="osintDorkResult" class="breach-result hidden"></div>
+                            <div id="osintFindingResult" class="breach-result hidden"></div>
+                        </div>
                     </div>
 
                     <div class="btn-row audit-action-row">
@@ -336,4 +357,3 @@
     </script>
 </body>
 </html>
-
