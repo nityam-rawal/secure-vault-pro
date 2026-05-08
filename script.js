@@ -112,6 +112,7 @@ const state = {
     lastEncryptedText: "",
     lastEncryptedFilePackage: null,
     importedEncryptedFilePackage: null,
+    safetyChatMode: "leak",
     auditData: {
         accountEntries: [],
         accountSummary: null,
@@ -120,7 +121,6 @@ const state = {
         osintDorks: [],
         osintReview: null,
         scamAnalysis: null,
-        awarenessPack: [],
         lastAuditReport: null
     },
     sharePackage: null,
@@ -150,9 +150,9 @@ function initApp() {
     initPasswordToggles();
     cacheTabElements();
     updateChatComposerHeight();
+    initSafetyAssistant();
     initPeer();
     handleSharedPayloadFromUrl();
-    generateAwarenessPack(false);
 
     $("shareModal").addEventListener("click", event => {
         if (event.target.id === "shareModal") {
@@ -1009,33 +1009,6 @@ function buildEmergencyChecklist(analysis = state.auditData.scamAnalysis) {
     ];
 }
 
-function copyEmergencyChecklist() {
-    const text = [
-        "Secure Vault Pro emergency checklist",
-        ...buildEmergencyChecklist().map(item => `- ${item}`)
-    ].join("\n");
-
-    copyToClipboard(text, "Emergency checklist copied.");
-}
-
-function loadScamDecoderSample(key = "digital-arrest") {
-    const scenario = getScenarioConfig(key);
-    $("scamInput").value = scenario.sample;
-    $("scamSourceInput").value = "";
-    showBanner(`${scenario.label} sample loaded into Scam Decoder.`, "success");
-}
-
-function clearScamDecoder() {
-    $("scamInput").value = "";
-    $("scamSourceInput").value = "";
-    hideMetricStrip("scamSummary");
-    $("scamResult").classList.add("hidden");
-    $("scamResult").innerHTML = "";
-    state.auditData.scamAnalysis = null;
-    generateAwarenessPack(false);
-    renderAttackSurfaceInsights();
-}
-
 function extractExplicitUrls(text) {
     return [...new Set(
         (String(text || "").match(/\b(?:https?:\/\/|www\.)[^\s<>"']+|\b[a-z0-9-]+\.(?:com|in|org|net|me|app|co|xyz|top|click|zip)\b[^\s<>"']*/gi) || [])
@@ -1199,141 +1172,6 @@ function buildScamAnalysis(message, source = "") {
     };
 }
 
-function renderScamDecoder(analysis) {
-    renderMetricStrip("scamSummary", [
-        { value: analysis.score, label: "risk score" },
-        { value: analysis.severity.toUpperCase(), label: "severity" },
-        { value: analysis.scenarioLabel, label: "likely pattern" },
-        { value: analysis.signalMatches.length + analysis.indicators.links, label: "signals" }
-    ]);
-
-    const lines = [
-        ...analysis.reasons.slice(0, 5),
-        ...analysis.actions.map(action => `Action: ${action}`)
-    ];
-
-    $("scamResult").innerHTML = `
-        <div class="decoder-head">
-            <span class="decoder-badge ${analysis.severity}">${escapeHtml(`${analysis.severity} risk`)}</span>
-            <p>${escapeHtml(`Likely pattern: ${analysis.scenarioLabel}.`)}</p>
-        </div>
-        ${formatList(lines)}
-    `;
-    $("scamResult").classList.remove("hidden");
-}
-
-function analyzeScamText() {
-    const message = $("scamInput").value.trim();
-    const source = $("scamSourceInput").value.trim();
-
-    if (!message && !source) {
-        alert("Paste a suspicious message, URL, or caller note first.");
-        return;
-    }
-
-    const analysis = buildScamAnalysis(message, source);
-    state.auditData.scamAnalysis = analysis;
-    renderScamDecoder(analysis);
-    generateAwarenessPack(false);
-    renderAttackSurfaceInsights();
-    showBanner(
-        analysis.severity === "critical" || analysis.severity === "high"
-            ? `${analysis.scenarioLabel} pattern detected. Pause and verify before doing anything else.`
-            : `${analysis.scenarioLabel} review generated.`,
-        analysis.severity === "low" ? "success" : "warning"
-    );
-}
-
-function buildAwarenessPack(analysis = state.auditData.scamAnalysis) {
-    const scenario = getScenarioConfig(analysis?.scenarioKey || "general");
-    const severityLabel = analysis ? `${analysis.severity.toUpperCase()} risk` : "Community alert";
-    const topAction = analysis?.actions?.[0] || scenario.actions[0];
-
-    return [
-        {
-            id: "family-alert",
-            channel: "WhatsApp",
-            title: "Family Alert",
-            hook: `${severityLabel}: ${scenario.hook}`,
-            body: `Agar koi police, bank, courier, KYC, refund, ya job ke naam par urgency create kare, OTP, QR scan, ya payment mat karo. ${scenario.audienceLine}`,
-            cta: "Save 1930, use official apps only, and forward this to the family group before the next scam wave."
-        },
-        {
-            id: "reel-hook",
-            channel: "Instagram Reels",
-            title: "30-second Reel Hook",
-            hook: `Hook: ${scenario.hook}`,
-            body: `Script: Ek fake message ya call aapko daraata hai, jaldi karwata hai, aur verification ke naam par paisa ya access maangta hai. Red flag dekho, panic nahi. ${topAction}`,
-            cta: "End card: Verify from the official app. If money moved, call 1930."
-        },
-        {
-            id: "poster-copy",
-            channel: "Community Poster",
-            title: "Poster Copy",
-            hook: `Headline: ${scenario.label} se bachne ke 3 rules`,
-            body: "Rule 1: OTP, MPIN, CVV, password, ya screen access kabhi share mat karo. Rule 2: Incoming link ya number se verify mat karo. Rule 3: Payment ho gaya ho to 1930 aur cybercrime.gov.in use karo.",
-            cta: "Use this in schools, RWAs, offices, coaching groups, and branch counters."
-        },
-        {
-            id: "workshop-opener",
-            channel: "Workshop",
-            title: "60-second Opener",
-            hook: "Most scams do not break systems first, they break attention first.",
-            body: `Aaj ka sample ${scenario.label.toLowerCase()} pattern dikhata hai. Attackers fear, urgency, secrecy, ya refund story use karke victim ko official process se bahar le jaate hain. ${scenario.audienceLine}`,
-            cta: "Close with one habit: pause, verify from the official app, and warn one more person."
-        }
-    ];
-}
-
-function renderAwarenessPack(cards) {
-    $("awarenessPackGrid").innerHTML = cards.map(card => `
-        <article class="awareness-card">
-            <div class="awareness-card-top">
-                <span class="channel-pill">${escapeHtml(card.channel)}</span>
-                <button type="button" class="ghost-btn" onclick="copyAwarenessCard('${card.id}')">Copy</button>
-            </div>
-            <h4>${escapeHtml(card.title)}</h4>
-            <p class="awareness-hook">${escapeHtml(card.hook)}</p>
-            <p>${escapeHtml(card.body)}</p>
-            <p class="awareness-cta">${escapeHtml(card.cta)}</p>
-        </article>
-    `).join("");
-}
-
-function formatAwarenessCard(card) {
-    return [
-        `${card.channel} | ${card.title}`,
-        card.hook,
-        "",
-        card.body,
-        "",
-        card.cta
-    ].join("\n");
-}
-
-function generateAwarenessPack(shouldNotify = true) {
-    const pack = buildAwarenessPack();
-    state.auditData.awarenessPack = pack;
-    renderAwarenessPack(pack);
-    if (shouldNotify) {
-        showBanner("Awareness pack generated for sharing.", "success");
-    }
-}
-
-function copyAwarenessCard(cardId) {
-    if (!state.auditData.awarenessPack.length) {
-        generateAwarenessPack(false);
-    }
-
-    const card = state.auditData.awarenessPack.find(item => item.id === cardId);
-    if (!card) {
-        alert("That awareness card is not available yet.");
-        return;
-    }
-
-    copyToClipboard(formatAwarenessCard(card), `${card.title} copied.`);
-}
-
 function detectEmailProvider(email) {
     const domain = (email.split("@")[1] || "").toLowerCase();
 
@@ -1444,6 +1282,219 @@ function hideMetricStrip(targetId) {
     const target = $(targetId);
     target.classList.add("hidden");
     target.innerHTML = "";
+}
+
+const SAFETY_CHAT_MODES = {
+    leak: {
+        label: "Data leak",
+        prompt: "Paste your owned domain, brand names, or public search result snippets. I can build safe dorks and score leak indicators.",
+        placeholder: "example.com or paste public search results/snippets...",
+        emptyHint: "Send a domain like example.com, a brand name, or public search result snippets for leak review."
+    },
+    email: {
+        label: "Email",
+        prompt: "Send the email address you want to review. I will check local provider signals and add it to the full audit profile.",
+        placeholder: "name@example.com",
+        emptyHint: "Send one email address to scan."
+    },
+    password: {
+        label: "Password",
+        prompt: "Send a password to check local strength and k-anonymity breach exposure. It is not stored by this app.",
+        placeholder: "Paste password for local/breach check...",
+        emptyHint: "Send one password to check."
+    },
+    history: {
+        label: "History",
+        prompt: "Paste visited URLs or domains. I will scan for phishing, shorteners, login bait, and account overlap.",
+        placeholder: "Paste URLs or domains, one per line...",
+        emptyHint: "Send URLs or domains to review."
+    },
+    audit: {
+        label: "Full audit",
+        prompt: "Send 'run' when your fields are ready, or paste profile context such as email, username, recovery provider, and contact count.",
+        placeholder: "run audit or paste profile context...",
+        emptyHint: "Send 'run' to start the audit after filling available fields."
+    }
+};
+
+function initSafetyAssistant() {
+    if (!$("safetyChatMessages")) {
+        return;
+    }
+
+    selectSafetyMode(state.safetyChatMode, false);
+    appendSafetyMessage(
+        "assistant",
+        "Safety Lab ready. Choose Data Leak, Email, Password, History, or Full Audit, then send the details here."
+    );
+    appendSafetyMessage("assistant", SAFETY_CHAT_MODES[state.safetyChatMode].prompt);
+}
+
+function appendSafetyMessage(role, message) {
+    const target = $("safetyChatMessages");
+    if (!target) {
+        return;
+    }
+
+    const bubble = document.createElement("div");
+    bubble.className = `safety-message ${role}`;
+    bubble.textContent = message;
+    target.appendChild(bubble);
+    target.scrollTop = target.scrollHeight;
+}
+
+function resizeSafetyChatInput() {
+    const input = $("safetyChatInput");
+    if (!input) {
+        return;
+    }
+
+    input.style.height = "auto";
+    input.style.height = `${Math.min(input.scrollHeight, 160)}px`;
+}
+
+function setSafetyModeButtonState(mode) {
+    Object.keys(SAFETY_CHAT_MODES).forEach(key => {
+        const button = $(`safetyMode${key.charAt(0).toUpperCase()}${key.slice(1)}`);
+        if (button) {
+            button.classList.toggle("active", key === mode);
+        }
+    });
+}
+
+function selectSafetyMode(mode = "leak", shouldSpeak = true) {
+    const config = SAFETY_CHAT_MODES[mode] || SAFETY_CHAT_MODES.leak;
+    state.safetyChatMode = SAFETY_CHAT_MODES[mode] ? mode : "leak";
+    setSafetyModeButtonState(state.safetyChatMode);
+
+    if ($("safetyModePill")) {
+        $("safetyModePill").textContent = config.label;
+    }
+    if ($("safetyModeDescription")) {
+        $("safetyModeDescription").textContent = config.prompt;
+    }
+    if ($("safetyChatInput")) {
+        $("safetyChatInput").placeholder = config.placeholder;
+        $("safetyChatInput").focus();
+        resizeSafetyChatInput();
+    }
+    if (shouldSpeak) {
+        appendSafetyMessage("assistant", config.prompt);
+    }
+}
+
+function handleSafetyChatKey(event) {
+    if (event.key === "Enter" && !event.shiftKey) {
+        event.preventDefault();
+        submitSafetyChat();
+    }
+}
+
+function extractEmailCandidate(text) {
+    return (String(text || "").match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i) || [])[0] || "";
+}
+
+function extractFirstDomainCandidate(text) {
+    const urlMatch = extractExplicitUrls(text)[0];
+    if (urlMatch) {
+        return normalizeHostname(urlMatch);
+    }
+
+    const domainMatch = String(text || "").match(/\b[a-z0-9-]+(?:\.[a-z0-9-]+)+\b/i);
+    return domainMatch ? normalizeHostname(domainMatch[0]) : "";
+}
+
+function looksLikePublicFinding(text) {
+    return /(https?:\/\/|www\.|pastebin|github|gitlab|drive\.google|docs\.google|api[_-]?key|secret|token|password|dump|backup|\.env|\.sql|index of)/i.test(text);
+}
+
+function appendTextareaValue(inputId, text) {
+    const input = $(inputId);
+    const current = input.value.trim();
+    input.value = current ? `${current}\n${text.trim()}` : text.trim();
+}
+
+async function submitSafetyChat() {
+    const input = $("safetyChatInput");
+    const message = input.value.trim();
+    const config = SAFETY_CHAT_MODES[state.safetyChatMode] || SAFETY_CHAT_MODES.leak;
+
+    if (!message) {
+        appendSafetyMessage("assistant", config.emptyHint);
+        return;
+    }
+
+    appendSafetyMessage("user", message);
+    input.value = "";
+    resizeSafetyChatInput();
+
+    if (state.safetyChatMode === "leak") {
+        const domain = extractFirstDomainCandidate(message);
+        if (domain) {
+            $("osintDomainInput").value = domain;
+        } else if (!$("osintBrandInput").value.trim() && !looksLikePublicFinding(message)) {
+            $("osintBrandInput").value = message.split(/\r?\n/)[0].slice(0, 80);
+        }
+
+        if (looksLikePublicFinding(message)) {
+            appendTextareaValue("osintPasteInput", message);
+        }
+
+        generateOsintDorks();
+        if ($("osintPasteInput").value.trim()) {
+            analyzeOsintFindings();
+            const review = state.auditData.osintReview;
+            const urgent = (review?.criticalCount || 0) + (review?.highCount || 0);
+            appendSafetyMessage("assistant", `Leak review complete: ${urgent} urgent lead(s), ${review?.identityMatches || 0} identity match(es), ${review?.hosts.length || 0} public host(s).`);
+        } else {
+            appendSafetyMessage("assistant", "I built a safe dork queue. Run those searches, paste public result snippets here, then I will score the leak indicators.");
+        }
+        return;
+    }
+
+    if (state.safetyChatMode === "email") {
+        const email = extractEmailCandidate(message);
+        if (!email) {
+            appendSafetyMessage("assistant", "I could not find an email address. Send one address like name@example.com.");
+            return;
+        }
+
+        $("emailInput").value = email;
+        checkEmailBreach();
+        appendSafetyMessage("assistant", `Email profile updated for ${email}. I added the local identity findings to Safety Lab.`);
+        return;
+    }
+
+    if (state.safetyChatMode === "password") {
+        $("passwordInput").value = message;
+        checkRiskStrength();
+        appendSafetyMessage("assistant", "Checking password strength and breach exposure now.");
+        await checkPasswordBreach();
+        appendSafetyMessage("assistant", "Password check finished. Review the Password Exposure result card below.");
+        return;
+    }
+
+    if (state.safetyChatMode === "history") {
+        appendTextareaValue("historyPasteInput", message);
+        await analyzeHistoryImport();
+        const summary = state.auditData.historySummary;
+        appendSafetyMessage("assistant", `History review complete: ${summary?.highRiskCount || 0} high-risk and ${summary?.mediumRiskCount || 0} medium-risk entries.`);
+        return;
+    }
+
+    if (state.safetyChatMode === "audit") {
+        const email = extractEmailCandidate(message);
+        const contacts = message.match(/\b\d{2,6}\b/);
+        if (email) {
+            $("emailInput").value = email;
+        }
+        if (contacts && !$("contactInput").value) {
+            $("contactInput").value = contacts[0];
+        }
+
+        await runComprehensiveScan();
+        appendSafetyMessage("assistant", "Full audit finished. I updated the score, recommendations, and export-ready report below.");
+    }
 }
 
 function normalizeHeaderLabel(label) {
@@ -2165,10 +2216,10 @@ function renderAttackSurfaceInsights(primaryEmail = $("emailInput").value.trim()
 
     const cards = [
         ...(scamAnalysis ? [{
-            title: "Live scam pressure",
+            title: "Incoming message pressure",
             summary: "What the currently pasted message or caller note is trying to make the user do next.",
             items: [
-                `${scamAnalysis.severity.toUpperCase()} risk score from the scam decoder.`,
+                `${scamAnalysis.severity.toUpperCase()} risk score from message review.`,
                 `Likely pattern: ${scamAnalysis.scenarioLabel}.`,
                 scamAnalysis.actions[0] || "Pause and verify using the official app."
             ]
@@ -2219,7 +2270,7 @@ function renderAttackSurfaceInsights(primaryEmail = $("emailInput").value.trim()
 
     const summaryLines = [
         ...(scamAnalysis
-            ? [`Scam Decoder currently flags a ${scamAnalysis.severity} risk ${scamAnalysis.scenarioLabel.toLowerCase()} pattern.`]
+            ? [`Incoming message review flags a ${scamAnalysis.severity} risk ${scamAnalysis.scenarioLabel.toLowerCase()} pattern.`]
             : []),
         largestReuseCluster
             ? `If one reused password falls, the biggest blast radius currently touches ${largestReuseCluster} accounts.`
@@ -2260,7 +2311,7 @@ function buildAuditReportPayload(options = {}) {
     const urgentOsint = (osintReview?.criticalCount || 0) + (osintReview?.highCount || 0);
     const attackSummary = [
         ...(scamAnalysis
-            ? [`Scam Decoder flagged a ${scamAnalysis.severity} risk ${scamAnalysis.scenarioLabel.toLowerCase()} pattern.`]
+            ? [`Incoming message review flagged a ${scamAnalysis.severity} risk ${scamAnalysis.scenarioLabel.toLowerCase()} pattern.`]
             : []),
         largestReuseCluster
             ? `Largest reused-password cluster affects ${largestReuseCluster} saved accounts.`
@@ -2314,14 +2365,6 @@ function buildAuditReportPayload(options = {}) {
             overlappingDomains: historySummary.overlapping,
             topRiskDomains: historySummary.topRiskDomains
         } : null,
-        scamSummary: scamAnalysis ? {
-            score: scamAnalysis.score,
-            severity: scamAnalysis.severity,
-            scenario: scamAnalysis.scenarioLabel,
-            reasons: scamAnalysis.reasons,
-            actions: scamAnalysis.actions,
-            indicators: scamAnalysis.indicators
-        } : null,
         osintSummary: osintReview ? {
             domain: osintReview.domain,
             brands: osintReview.brands,
@@ -2340,11 +2383,6 @@ function buildAuditReportPayload(options = {}) {
                 line: item.line
             }))
         } : null,
-        awarenessPack: state.auditData.awarenessPack.map(card => ({
-            id: card.id,
-            channel: card.channel,
-            title: card.title
-        })),
         attackSummary,
         recommendations: options.recommendations || []
     };
@@ -2354,12 +2392,10 @@ function exportAuditReport(format = "json") {
     const report = state.auditData.lastAuditReport || buildAuditReportPayload();
     const hasData = Boolean(
         report.profile.primaryEmail ||
-        report.scamSummary ||
         report.osintSummary ||
         state.auditData.accountEntries.length ||
         state.auditData.historyEntries.length ||
         state.auditData.osintDorks.length ||
-        state.auditData.awarenessPack.length ||
         $("resultText").textContent.trim()
     );
 
@@ -2381,7 +2417,6 @@ function exportAuditReport(format = "json") {
             `Recovery provider: ${report.profile.recoveryProvider || "not set"}`,
             `Contacts: ${report.profile.contacts}`,
             `Password strength: ${report.profile.passwordStrength}`,
-            report.scamSummary ? `Scam Decoder: ${report.scamSummary.severity} risk ${report.scamSummary.scenario}` : "Scam Decoder: not run",
             report.osintSummary ? `OSINT Review: ${report.osintSummary.criticalCount + report.osintSummary.highCount} urgent leads across ${report.osintSummary.hosts.length} hosts` : "OSINT Review: not run",
             "",
             "Attack summary:",
@@ -2754,14 +2789,6 @@ async function runComprehensiveScan() {
             summary: state.auditData.historySummary
                 ? `${state.auditData.historySummary.highRiskCount} high-risk and ${state.auditData.historySummary.mediumRiskCount} medium-risk history entries.`
                 : "No history import analyzed."
-        },
-        {
-            label: "Live scam pressure",
-            weight: 14,
-            score: scamAnalysis ? Math.max(8, 100 - scamAnalysis.score) : 58,
-            summary: scamAnalysis
-                ? `${scamAnalysis.severity.toUpperCase()} risk ${scamAnalysis.scenarioLabel.toLowerCase()} pattern detected.`
-                : "Scam Decoder has not been run yet."
         },
         {
             label: "Public leak posture",

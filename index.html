@@ -137,11 +137,41 @@
                     <div class="response-strip">
                         <a class="response-card emergency-card" href="tel:1930">Call 1930</a>
                         <a class="response-card" href="https://cybercrime.gov.in/" target="_blank" rel="noopener noreferrer">Report Cybercrime</a>
-                        <button class="ghost-btn response-card" onclick="copyEmergencyChecklist()">Copy Help Checklist</button>
-                        <button class="ghost-btn response-card" onclick="generateAwarenessPack()">Build Awareness Pack</button>
                     </div>
 
+                    <div class="safety-chat-shell">
+                        <div class="safety-chat-main">
+                            <div class="safety-chat-header">
+                                <div>
+                                    <p class="eyebrow">AI-style workflow</p>
+                                    <h3>Safety Lab Assistant</h3>
+                                </div>
+                                <span id="safetyModePill" class="mode-pill">Data leak</span>
+                            </div>
+                            <div id="safetyChatMessages" class="safety-chat-messages" aria-live="polite"></div>
+                            <div class="safety-option-row" role="group" aria-label="Safety Lab action options">
+                                <button id="safetyModeLeak" class="safety-option active" onclick="selectSafetyMode('leak')">Data Leak</button>
+                                <button id="safetyModeEmail" class="safety-option" onclick="selectSafetyMode('email')">Email</button>
+                                <button id="safetyModePassword" class="safety-option" onclick="selectSafetyMode('password')">Password</button>
+                                <button id="safetyModeHistory" class="safety-option" onclick="selectSafetyMode('history')">History</button>
+                                <button id="safetyModeAudit" class="safety-option" onclick="selectSafetyMode('audit')">Full Audit</button>
+                            </div>
+                            <div class="safety-chat-input">
+                                <textarea id="safetyChatInput" rows="1" placeholder="Ask for a data leak check, paste a domain, email, password, or public result snippets..." onkeydown="handleSafetyChatKey(event)" oninput="resizeSafetyChatInput()"></textarea>
+                                <button onclick="submitSafetyChat()">Send</button>
+                            </div>
+                        </div>
 
+                        <div class="safety-context-panel">
+                            <h3>Selected Check</h3>
+                            <p id="safetyModeDescription">Paste your owned domain or public search result snippets. I will build safe dorks and score leak indicators.</p>
+                            <div class="safety-context-actions">
+                                <button class="ghost-btn" onclick="generateOsintDorks()">Build Dorks</button>
+                                <button class="ghost-btn" onclick="analyzeOsintFindings()">Analyze Findings</button>
+                                <button class="ghost-btn" onclick="runComprehensiveScan()">Run Audit</button>
+                            </div>
+                        </div>
+                    </div>
 
                     <div class="audit-grid">
                         <div class="breach-section">

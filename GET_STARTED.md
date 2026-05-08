@@ -217,4 +217,6 @@ The Safety Lab now includes a defensive **Data Leak Dork Review** workflow for a
 3. Paste public result URLs or snippets into the findings box.
 4. Click **Analyze Findings** and include the result in the audit export.
 
+You can also use the **Safety Lab Assistant** chat box: choose Data Leak, Email, Password, History, or Full Audit, then send the details in the composer.
+
 See `OSINT_LEAK_REVIEW.md` for the safe operating rules and triage checklist.
